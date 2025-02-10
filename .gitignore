@@ -1,0 +1,7 @@
+bin/
+lib/
+# since the runtime binary gets copied into the editor
+*.exe
+# engine filetypes that get generated
+*.map
+.vs
