@@ -8,6 +8,7 @@
 
 #include <paldraw.h>
 #include <pal.h>
+#include <rle.h>
 
 #include "data.h"
 
