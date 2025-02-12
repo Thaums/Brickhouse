@@ -10,8 +10,12 @@
 
 #include <pal.h>
 #include <paldraw.h>
+#include <rle.h>
+#include <io.h>
 
 #include "resource.h"
+
+#include "menu.h"
 
 #define TICK_INTERVAL 16
 
@@ -82,46 +86,6 @@ void RunExecutableWithArguments(const TCHAR* executablePath, const TCHAR* argume
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
 }
-
-void WriteToFile(const TCHAR* filePath, const char* data, unsigned int length) {
-	// Create or open the file
-	HANDLE hFile = CreateFile(
-		filePath,                // File path
-		GENERIC_WRITE,           // Desired access
-		0,                       // Share mode
-		NULL,                    // Security attributes
-		CREATE_ALWAYS,           // Creation disposition
-		FILE_ATTRIBUTE_NORMAL,   // Flags and attributes
-		NULL                     // Template file handle
-	);
-
-	if (hFile == INVALID_HANDLE_VALUE) {
-		printf("Could not create or open file (error %lu)\n", GetLastError());
-		return;
-	}
-
-	// Write data to the file
-	DWORD bytesWritten;
-	BOOL result = WriteFile(
-		hFile,                  // Handle to the file
-		data,                   // Data to write
-		length,    // Number of bytes to write
-		&bytesWritten,          // Number of bytes written
-		NULL                    // Overlapped structure
-	);
-
-	if (!result) {
-		printf("Failed to write to file (error %lu)\n", GetLastError());
-	}
-	else {
-		printf("Successfully written %lu bytes to file\n", bytesWritten);
-	}
-
-	// Close the file handle
-	CloseHandle(hFile);
-}
-
-
 
 unsigned int windowSizeW, windowSizeH;
 
@@ -311,7 +275,7 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 	wndclass.lpfnWndProc = WndProc;
 	wndclass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
 	wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+	wndclass.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON_APPLICATION));
 	wndclass.hInstance = hInstance;
 	wndclass.style = CS_HREDRAW | CS_VREDRAW;
 	RegisterClass(&wndclass);
@@ -337,7 +301,7 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, 1920, 1080,
 		NULL,
-		NULL,
+		GetAppMenu(),
 		hInstance,
 		NULL
 	);
@@ -487,82 +451,7 @@ void readPackedTexture(unsigned char* texture) {
 	return;
 }
 
-uint16_t* RunLengthEncode(uint16_t* uncompressed, size_t siz) {
-	if (siz == 0)
-		return NULL;
-	uint16_t* compressed;
-	int count = 1;
-	uint16_t cur = uncompressed[0];
-	for (int i = 1; i < siz; i++) {
-		if (cur != uncompressed[i]) {
-			cur = uncompressed[i];
-			count++;
-		}
-	}
-	compressed = malloc(sizeof(uint16_t) * 2 * count + sizeof(size_t)); //prepend the new size
-	if (!compressed) {
-		MessageBox(NULL, TEXT("Could not allocate memory for RLE encode"), TEXT("Error"), MB_ICONERROR);
-		return NULL;
-	}
-	size_t* writeSize = (size_t*)compressed;
-	compressed = writeSize + 1;
-	count = 0;
-	size_t total_size = 1;
-	cur = uncompressed[0];
-	for (int i = 0; i < siz; i++) {
-		if (i)
-			count++;
-		if (cur != uncompressed[i] || count == MAXUINT16) {
-			*compressed = count;
-			compressed++;
-			*compressed = cur;
-			compressed++;
-			cur = uncompressed[i];
-			count = 0;
-			total_size++;
-		}
-	}
-	count++;
-	*compressed = count;
-	compressed++;
-	*compressed = cur;
-	compressed++;
-	*writeSize = total_size;
-	return (uint16_t*)writeSize;
-}
 
-uint16_t* RunLengthDecode(uint16_t* compressed) {
-	size_t cSize = *(size_t*)compressed;
-	compressed = ((size_t*)compressed) + 1;
-	uint16_t* iter = compressed;
-	size_t uSize = 0;
-	for (int i = 0; i < cSize; i++) {
-		uSize += *iter;
-		iter += 2;
-	}
-	iter = NULL;
-	if (!uSize) {
-		return NULL;
-	}
-	uint16_t* uncompressed = malloc(sizeof(uint16_t) * uSize);
-	if (!uncompressed) {
-		return NULL;
-	}
-	uint16_t* result = uncompressed;
-	iter = compressed;
-	for (int i = 0; i < cSize; i++) {
-		uint16_t repeat = *iter;
-		iter++;
-		uint16_t character = *iter;
-		iter++;
-		for (int r = 0; r < repeat; r++) {
-			*uncompressed = character;
-			uncompressed++;
-		}
-	}
-	iter = NULL;
-	return result;
-}
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	static HWND hwndTilepicker;
@@ -629,15 +518,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	case WM_COMMAND: {
 		const TCHAR* executablePath = TEXT("runtime.exe");
 		const TCHAR* arguments = TEXT("test.map");
-		if (lParam == TMenuButtons.pasteButton) {
-			unsigned char* writeBuffer = malloc(map_width * map_height);
+
+		switch (LOWORD(wParam)) {
+		case IDM_FILE_EXIT: {
+			PostQuitMessage(0);
+			break;
+		}
+		case IDM_TEST_PLAY: {
+			uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
+			if (!writeBuffer) {
+				break;
+			}
 			for (int i = 0; i < (map_width * map_height); i++) {
 				writeBuffer[i] = map_data[i];
 			}
-			//WriteToFile(TEXT("test.map"), writeBuffer, map_width * map_height);
-			embed_nofile(executablePath, writeBuffer, map_width * map_height, 101);
-			free(writeBuffer);
-			writeBuffer = NULL;
+			uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
+			size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
+			size_t RLELength = *getRLELength;
+			embed_nofile(executablePath, writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength, 101);
+			free(writeBufferCompressedRLE);
+			writeBufferCompressedRLE = NULL;
 
 			unsigned char* palette_data = paletteToResource(paletteInMemory);
 			embed_nofile(executablePath, palette_data, 256 * 3, 102);
@@ -648,8 +548,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			free(TilesetDataPacked);
 
 			RunExecutableWithArguments(executablePath, arguments);
+			break;
 		}
-		else if (lParam == TMenuButtons.saveButton) {
+		case IDM_FILE_SAVE: {
 			uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
 			if (!writeBuffer) {
 				break;
@@ -682,15 +583,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			TCHAR commandLine[CMDLINELEN];
 			//_tprintf(arguments);
 			_sntprintf_s(commandLine, CMDLINELEN, 100, TEXT("\"%s\""), executablePath);*/
-			
+
 			//embed(executablePath, arguments, 101);
 			/*
 			char modulePath[1000];
 			GetCurrentDirectoryA(1000, modulePath);
 			printf(modulePath);
 			*/
+			break;
 		}
-		else if (lParam == TMenuButtons.zoomOut) {
+		}
+		if (lParam == TMenuButtons.zoomOut) {
 			int izoom = zoomLevel;
 			zoomLevel = max(zoomLevel - 1, 1);
 			SendMessage(viewportTest, WM_SIZE, wParam, lParam);

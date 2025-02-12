@@ -145,9 +145,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\io.c" />
     <ClCompile Include="src\palDraw.c" />
+    <ClCompile Include="src\rle.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="includes\io.h" />
+    <ClInclude Include="includes\rle.h" />
     <ClInclude Include="includes\pal.h" />
     <ClInclude Include="includes\palDraw.h" />
   </ItemGroup>

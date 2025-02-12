@@ -149,7 +149,7 @@ void freeGrid(grid* toFree) {
 	return;
 }
 
-void setGrid(grid* toSet, unsigned char* data) {
+void setGrid(grid* toSet, uint16_t* data) {
 	for (int i = 0; i < toSet->dat.w * toSet->dat.h; i++) {
 		int x = i % toSet->dat.w;
 		int y = i / toSet->dat.w;
@@ -521,9 +521,10 @@ _Use_decl_annotations_ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrev
 
 	PALDRAW_isLoaded();
 
-	unsigned char* loadMapDataTest = NULL;
+	uint16_t* loadMapDataTest = NULL;
 	unsigned int loadMapDataSize = 0;
 	loadGameResource(101, &loadMapDataTest, &loadMapDataSize);
+	uint16_t* writeBufferUncompressedRLE = RunLengthDecode(loadMapDataTest);
 
 	unsigned char* loadPaletteDataTest = NULL;
 	unsigned int loadPaletteDataSize = 0;
@@ -556,7 +557,7 @@ _Use_decl_annotations_ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrev
 	levelw = 50;
 	levelh = 50;
 	level = allocateGrid(levelw, levelh);
-	setGrid(level, loadMapDataTest);
+	setGrid(level, writeBufferUncompressedRLE);
 
 	RECT clientAreaRect;
 	clientAreaRect.left = 0;

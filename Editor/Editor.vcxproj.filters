@@ -24,6 +24,9 @@
     <ClCompile Include="src\layer.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\menu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\Icon.ico">
@@ -61,6 +64,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\texture.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\menu.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

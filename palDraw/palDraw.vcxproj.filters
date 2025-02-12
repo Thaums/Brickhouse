@@ -18,12 +18,24 @@
     <ClCompile Include="src\palDraw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\rle.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\io.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="includes\palDraw.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\pal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\rle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\io.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
