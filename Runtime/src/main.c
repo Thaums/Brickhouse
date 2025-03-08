@@ -9,8 +9,13 @@
 #include <paldraw.h>
 #include <pal.h>
 #include <rle.h>
+#include <defines.h>
 
 #include "data.h"
+#include "mapinfo.h"
+#include "gameinfo.h"
+
+#include <element.h>
 
 #define TICK_INTERVAL 16
 
@@ -39,22 +44,6 @@ double time_left(void) {
 
 int windowSizeX;
 int windowSizeY;
-
-typedef struct {
-	float x;
-	float y;
-} vec2;
-
-typedef struct {
-	struct {
-		float x;
-		float y;
-	} pos;
-	struct {
-		float w;
-		float h;
-	} dim;
-} aabb;
 
 typedef struct {
 	uint32_t id;
@@ -88,6 +77,14 @@ thing* player = NULL;
 grid* level = NULL;
 uint32_t levelw = 50;
 uint32_t levelh = 37;
+
+typedef struct {
+	grid* data;
+	struct {
+		uint32_t w;
+		uint32_t h;
+	} dim;
+} slevel;
 
 bool keydown_w = false;
 bool keydown_a = false;
@@ -506,6 +503,20 @@ void fillPaletteStruct(RGBQUAD* epalette, PaletteResource* rpalette) {
 	return;
 }
 
+int GetStartingMapResource() {
+	return LaunchInfo.resources.indexMapResource + LaunchInfo.player.map;
+}
+
+int GetStartingMapID() {
+	return LaunchInfo.player.map;
+}
+
+MapInfo* GetMapFromID(int id) {
+	return MapCollection + id;
+}
+
+
+
 RGBQUAD* selectedGamePalette;
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -522,14 +533,32 @@ _Use_decl_annotations_ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrev
 
 	PALDRAW_isLoaded();
 
+	printf("Loading MAPINFO\n");
+
+	char* loadMapInfo = NULL;
+	unsigned int loadMapInfoSize = 0;
+	loadGameResource(RRID_MAPINFO, &loadMapInfo, &loadMapInfoSize);
+	InitializeMapInfoList(loadMapInfo);
+
+	printf("Loading LAUNCHINFO\n");
+
+	char* loadLaunchInfo = NULL;
+	unsigned int loadLaunchInfoSize = 0;
+	loadGameResource(RRID_GAMEINFO, &loadLaunchInfo, &loadLaunchInfoSize);
+	InitializeGameState(loadLaunchInfo);
+
+	printf("Loading MAP DATA\n");
+
 	uint16_t* loadMapDataTest = NULL;
 	unsigned int loadMapDataSize = 0;
-	loadGameResource(101, &loadMapDataTest, &loadMapDataSize);
+	loadGameResource(GetStartingMapResource(), &loadMapDataTest, &loadMapDataSize);
 	uint16_t* writeBufferUncompressedRLE = RunLengthDecode(loadMapDataTest);
+
+	printf("Loading PALETTE DATA\n");
 
 	unsigned char* loadPaletteDataTest = NULL;
 	unsigned int loadPaletteDataSize = 0;
-	loadGameResource(102, &loadPaletteDataTest, &loadPaletteDataSize);
+	loadGameResource(112, &loadPaletteDataTest, &loadPaletteDataSize);
 
 	selectedGamePalette = malloc(sizeof(RGBQUAD) * 256);
 	fillPaletteStruct(selectedGamePalette, (PaletteResource*)loadPaletteDataTest);
@@ -554,11 +583,20 @@ _Use_decl_annotations_ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrev
 		allRectsInGame[i].flag.isTouchingCeiling = false;
 	}
 	player = allRectsInGame;
+	player->collision.pos.x = LaunchInfo.player.x;
+	player->collision.pos.y = LaunchInfo.player.y;
 
-	levelw = 50;
-	levelh = 50;
+	printf("Making Level\n");
+	printf("first map: %d\n", GetStartingMapID());
+	levelw = GetMapFromID(GetStartingMapID())->dim.w;
+	levelh = GetMapFromID(GetStartingMapID())->dim.h;
+	printf("Allocating Grid\n");
 	level = allocateGrid(levelw, levelh);
+	printf("Level Made\n");
 	setGrid(level, writeBufferUncompressedRLE);
+	printf("Grid set\n");
+
+	//grid* smalltest = allocateGrid(100, 100);
 
 	RECT clientAreaRect;
 	clientAreaRect.left = 0;
@@ -644,20 +682,47 @@ void unpackTexture(unsigned char* packed, TexData* tex) {
 	return;
 }
 
+extern inline void renderTextASCIIToBuffer(HDC hdcDest, HDC hdcGlyphAtlas, char* text, unsigned int numOfCharacters, unsigned int textBoxWidth, int x, int y) {
+	for (int i = 0; i < numOfCharacters; i++) {
+		unsigned char ascii_code = text[i] - 32;
+		if (text[i] == 0)
+			ascii_code = 0;
+		int glyphMapWidth = 128 / 8;
+		int glyphMapHeight = 48 / 8;
+		int iglyph_x = ascii_code % glyphMapWidth;
+		int iglyph_y = ascii_code / glyphMapWidth;
+		BitBlt(hdcDest, i % textBoxWidth * 8 + x, i / textBoxWidth * 8 + y, 8, 8, hdcGlyphAtlas, iglyph_x * 8, iglyph_y * 8, SRCCOPY);
+	}
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	PAINTSTRUCT ps;
 	void* testPointer;
 	static HBITMAP hBackbuffer;
 	static HBITMAP hTileset;
+	static HBITMAP hVersionText;
+	static HBITMAP hGlyphAtlas;
 	switch (message) {
 	case WM_CREATE: {
 		HDC hdc = GetWindowDC(hwnd);
 		hBackbuffer = BitmapFill(hdc, 800, 600, &testPointer, 0, selectedGamePalette);
 		int tilesetSiz = 0;
 		unsigned char* packedTextureData;
-		loadGameResource(103, &packedTextureData, &tilesetSiz);
+		loadGameResource(113, &packedTextureData, &tilesetSiz);
 		unpackTexture(packedTextureData, &LoadedTilesetTexture);
 
+		hVersionText = BitmapFill(hdc, 256, 8, &testPointer, 0, selectedGamePalette);
+		hGlyphAtlas = BitmapNormal(hdc, 128, 48, &testPointer, textureData_Glyph, selectedGamePalette);
+
+		HDC hdcVersionText = CreateCompatibleDC(hdc);
+		HDC hdcGlyphAtlas = CreateCompatibleDC(hdc);
+		SelectObject(hdcVersionText, hVersionText);
+		SelectObject(hdcGlyphAtlas, hGlyphAtlas);
+
+		renderTextASCIIToBuffer(hdcVersionText, hdcGlyphAtlas, "Brickhouse a.1.0.0", 32, 32, 0, 0);
+
+		DeleteDC(hdcGlyphAtlas);
+		DeleteDC(hdcVersionText);
 
 		//printf("imgay");
 		hTileset = BitmapNormal(hdc, LoadedTilesetTexture.dim.w, LoadedTilesetTexture.dim.h, &testPointer, LoadedTilesetTexture.data, selectedGamePalette);
@@ -682,8 +747,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 		HDC hdcBackbuffer = CreateCompatibleDC(hdcPaint);
 		HDC hdcTileset = CreateCompatibleDC(hdcPaint);
+		HDC hdcVersionText = CreateCompatibleDC(hdcPaint);
 		SelectObject(hdcBackbuffer, hBackbuffer);
 		SelectObject(hdcTileset, hTileset);
+		SelectObject(hdcVersionText, hVersionText);
 		
 		//if (allRectsInGame != NULL)
 		for (int y = 0; y < levelh; y++) {
@@ -698,11 +765,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			BitBlt(hdcBackbuffer, allRectsInGame[i].collision.pos.x, allRectsInGame[i].collision.pos.y, allRectsInGame[i].collision.dim.w, allRectsInGame[i].collision.dim.h, hdcTileset, 16, 48, SRCCOPY);
 		}
 
+		BitBlt(hdcBackbuffer, 0, 0, 128, 8, hdcVersionText, 0, 0, SRCPAINT);
+
 		//TODO: Check if device can StretchBlt
 		StretchBlt(hdcPaint, 0, 0, windowSizeX, windowSizeY, hdcBackbuffer, 0, 0, 800, 600, SRCCOPY);
 
 		DeleteDC(hdcBackbuffer);
 		DeleteDC(hdcTileset);
+		DeleteDC(hdcVersionText);
 
 		EndPaint(hwnd, &ps);
 		break;

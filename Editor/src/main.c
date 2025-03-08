@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <math.h>
 
+#include "global.h"
+
 #include "layer.h"
 #include "embed.h"
 
@@ -12,15 +14,16 @@
 #include <paldraw.h>
 #include <rle.h>
 #include <io.h>
+#include <defines.h>
 
 #include "resource.h"
 
 #include "menu.h"
 
-#define TICK_INTERVAL 16
-
-double appTime;
-double tickStart = 0;
+#include "layermanager.h"
+#include "palettemanager.h"
+#include "viewport.h"
+#include "tilepicker.h"
 
 double GetTicks() {
 	LARGE_INTEGER result;
@@ -87,11 +90,6 @@ void RunExecutableWithArguments(const TCHAR* executablePath, const TCHAR* argume
 	CloseHandle(pi.hThread);
 }
 
-unsigned int windowSizeW, windowSizeH;
-
-uint16_t* map_data = NULL;
-unsigned int map_width = 0;
-unsigned int map_height = 0;
 
 HICON LoadIconWithSize(HINSTANCE hInstance, int iconID, int width, int height) {
 	return (HICON)LoadImage(
@@ -104,15 +102,15 @@ HICON LoadIconWithSize(HINSTANCE hInstance, int iconID, int width, int height) {
 	);
 }
 
-HWND CreateButton(HWND window, int x, int y, int w, int h, HICON icon) {
+HWND CreateButton(HWND window, int x, int y, int w, int h, HICON icon, DWORD flags, int id) {
 	HWND result = CreateWindow(
 		TEXT("BUTTON"),
 		NULL,
-		WS_CHILD | WS_VISIBLE | BS_ICON,
+		flags,
 		x, y,
 		w, h,
 		window,
-		NULL,
+		(HMENU)id,
 		GetWindowLong(window, GWL_HINSTANCE),
 		NULL
 	);
@@ -184,9 +182,9 @@ unsigned char* paletteToResource(RGBQUAD* palette) {
 }
 
 struct TopMenuButtons {
-	HWND newButton;
-	HWND saveButton;
-	HWND copyButton;
+	HWND drawButton; //tilemap editor
+	HWND elementButton; //element editor for dynamic game objects 
+	HWND collisionButton; //tilemap collision editor
 	HWND pasteButton;
 	HWND zoomOut;
 	HWND zoomIn;
@@ -202,26 +200,29 @@ int TMenuIcons[] = {
 	IDI_ICON4
 };
 
-MapLayerStack* map_layers;
+DWORD TMenuButtonFlags[] = {
+	WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_LEFTTEXT | BS_PUSHLIKE | BS_ICON,
+	WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_LEFTTEXT | BS_PUSHLIKE | BS_ICON,
+	WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_LEFTTEXT | BS_PUSHLIKE | BS_ICON,
+	WS_CHILD | WS_VISIBLE | BS_ICON,
+	WS_CHILD | WS_VISIBLE | BS_ICON,
+	WS_CHILD | WS_VISIBLE | BS_ICON
+};
 
+int TMenuIDs[] = {
+	1001,
+	1002,
+	1003,
+	NULL,
+	NULL,
+	NULL
+};
 
 void game() {
 	return;
 }
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK TilePickerWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK ViewportWndProc(HWND, UINT, WPARAM, LPARAM);
-
-LRESULT CALLBACK LayerManagerWndProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK PaletteManagerWndProc(HWND, UINT, WPARAM, LPARAM);
-
-TCHAR szTilesetName[] = TEXT("TilesetPicker");
-TCHAR szViewportName[] = TEXT("Viewport");
-TCHAR szLayerManagerName[] = TEXT("Layer Manager");
-TCHAR szPaletteManagerName[] = TEXT("Palette Manager");
-
-RGBQUAD paletteInMemory[256];
 
 void copyPaletteToPalette(RGBQUAD* src, RGBQUAD* dest, int length, int offset) {
 	for (int i = offset; i < length; i++) {
@@ -241,6 +242,7 @@ HMENU CreateTilesetMenu() {
 }
 
 _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLine, int iCmdShow) {
+	initGlobals();
 	tickStart = GetTicks();
 
 	FILE* fp;
@@ -362,15 +364,7 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 	return message.wParam;
 }
 
-unsigned int selectedTileIndex = 0;
-unsigned int zoomLevel = 3;
-HWND viewportTest = NULL;
-HWND tilepickerHWND = NULL;
-bool CanDrawViewport = true;
 
-unsigned char* TilesetDataToSend;
-int TilesetDataWidth = 0;
-int TilesetDataHeight = 0;
 
 
 void backbufferRender(RECT rcPaint, HDC dest, HDC source, int offsetY) {
@@ -464,7 +458,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		HWND* PTMenuButtons = &TMenuButtons;
 
 		for (int i = 0; i < sizeof(struct TopMenuButtons) / sizeof(HWND); i++) {
-			*(PTMenuButtons + i) = CreateButton(hwnd, 23 * i + 10, 10, 23, 23, LoadIconWithSize((HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE), TMenuIcons[i], 16, 16));
+			*(PTMenuButtons + i) = CreateButton(hwnd, 23 * i + 266, 43, 23, 23, LoadIconWithSize((HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE), TMenuIcons[i], 16, 16), TMenuButtonFlags[i], TMenuIDs[i]);
 		}
 		hwndViewport = CreateWindow(
 			szViewportName,
@@ -488,7 +482,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			NULL
 		);
 		
-
+		//LaunchInfo Init
+		LaunchInfo.player.map = 0;
+		LaunchInfo.player.x = 16 * 10;
+		LaunchInfo.player.y = 16 * 10;
+		LaunchInfo.resources.indexMapResource = 104;
 		
 
 		break;
@@ -525,6 +523,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			break;
 		}
 		case IDM_TEST_PLAY: {
+			embed_nofile(executablePath, SerializeGameInfo(&LaunchInfo), sizeof(GameInfo), RRID_GAMEINFO);
+			embed_nofile(executablePath, SerializeMapInfoList(MapCollection), MapCollectionLength * sizeof(MapInfo) + sizeof(unsigned int), RRID_MAPINFO);
+
 			uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
 			if (!writeBuffer) {
 				break;
@@ -535,16 +536,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
 			size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
 			size_t RLELength = *getRLELength;
-			embed_nofile(executablePath, writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength, 101);
+			embed_nofile(executablePath, writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength, LaunchInfo.resources.indexMapResource);
 			free(writeBufferCompressedRLE);
 			writeBufferCompressedRLE = NULL;
 
 			unsigned char* palette_data = paletteToResource(paletteInMemory);
-			embed_nofile(executablePath, palette_data, 256 * 3, 102);
+			embed_nofile(executablePath, palette_data, 256 * 3, 112);
 			free(palette_data);
 
 			unsigned char* TilesetDataPacked = packTexture(TilesetDataWidth, TilesetDataHeight, TilesetDataToSend);
-			embed_nofile(executablePath, TilesetDataPacked, 256 * 256, 103);
+			embed_nofile(executablePath, TilesetDataPacked, 256 * 256, 113);
 			free(TilesetDataPacked);
 
 			RunExecutableWithArguments(executablePath, arguments);
@@ -607,9 +608,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			if (zoomLevel != izoom)
 				InvalidateRect(viewportTest, NULL, FALSE);
 		}
-		else if (lParam == TMenuButtons.newButton) {
-			CanDrawViewport = !CanDrawViewport;
-			break;
+		else if (lParam == TMenuButtons.drawButton) {
+			CanDrawViewport = !CanDrawViewport; //???
+
+			CheckDlgButton(hwnd, TMenuIDs[1], BST_UNCHECKED);
+			CheckDlgButton(hwnd, TMenuIDs[2], BST_UNCHECKED);
+
+			g_viewport_mode = VMODE_DRAW;
+			InvalidateRect(viewportTest, NULL, FALSE);
+		}
+		else if (lParam == TMenuButtons.elementButton) {
+			CheckDlgButton(hwnd, TMenuIDs[0], BST_UNCHECKED);
+			CheckDlgButton(hwnd, TMenuIDs[2], BST_UNCHECKED);
+
+			g_viewport_mode = VMODE_ELEM;
+			InvalidateRect(viewportTest, NULL, FALSE);
+		}
+		else if (lParam == TMenuButtons.collisionButton) {
+			CheckDlgButton(hwnd, TMenuIDs[1], BST_UNCHECKED);
+			CheckDlgButton(hwnd, TMenuIDs[0], BST_UNCHECKED);
+
+			g_viewport_mode = VMODE_COL;
+			InvalidateRect(viewportTest, NULL, FALSE);
 		}
 		break;
 	}
@@ -626,507 +646,5 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	}
 	}
 
-	return DefWindowProc(hwnd, message, wParam, lParam);
-}
-
-
-LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-	PAINTSTRUCT ps;
-	static HBITMAP hTileset;
-	static HBITMAP hTilesetBackbuffer;
-	static int mouseX, mouseY;
-	static int mapIndexX, mapIndexY;
-	static int clientX, clientY;
-	static int realClientX, realClientY;
-	static RECT focusrect;
-	static bool lMouseDown = false;
-	static bool rMouseDown = false;
-	static bool showScrollV = false;
-	static bool showScrollH = false;
-	static int iVScrollPos = 0;
-	static int iHScrollPos = 0;
-	static int offsetY;
-	static int offsetX;
-
-	static void* imgay;
-
-	static int brushSize = 1;
-
-	static void* pTileset;
-	switch (message) {
-	case WM_CREATE: {
-		viewportTest = hwnd;
-		//CreateButton(hwnd, 0, 0, 100, 100, NULL);
-		HDC hdc = GetWindowDC(hwnd);
-		//hTileset = LoadImage(NULL, TEXT("res/outdoor.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
-		
-		hTileset = convertBMPToEngineFormat(hdc, TEXT("res/space.bmp"), paletteInMemory, (void**)&TilesetDataToSend);
-		BITMAP TilesetBMPI;
-		GetObject(hTileset, sizeof(TilesetBMPI), &TilesetBMPI);
-		TilesetDataWidth = TilesetBMPI.bmWidth;
-		TilesetDataHeight = TilesetBMPI.bmHeight;
-
-		//SendMessage(tilepickerHWND, WM_CREATE, wParam, lParam);
-
-		map_width = 50;
-		map_height = 50;
-		//hTilesetBackbuffer = CreateCompatibleBitmap(hdc, map_width * 16, map_height * 16);
-		hTilesetBackbuffer = BitmapFill(hdc, map_width * 16, map_height * 16, &pTileset, 0, paletteInMemory);
-		map_data = malloc(sizeof(int) * map_width * map_height);
-		for (int i = 0; i < map_width * map_height; i++) {
-			map_data[i] = 0;
-		}
-		RECT blitRect = { 0 };
-		blitRect.right = map_width * 16 * zoomLevel;
-		blitRect.bottom = map_height * 16 * zoomLevel;
-		HDC hdcBackbuffer = CreateCompatibleDC(hdc);
-		HDC hdcTileset = CreateCompatibleDC(hdc);
-		SelectObject(hdcTileset, hTileset);
-		SelectObject(hdcBackbuffer, hTilesetBackbuffer);
-		backbufferRender(blitRect, hdcBackbuffer, hdcTileset, offsetY);
-		DeleteDC(hdcBackbuffer);
-		DeleteDC(hdcTileset);
-		//ShowScrollBar(hwnd, SB_HORZ, TRUE);
-		DeleteDC(hdc);
-
-		SetScrollRange(hwnd, SB_HORZ, 0, 1000, FALSE);
-		SetScrollRange(hwnd, SB_VERT, 0, 1000, FALSE);
-
-		break;
-	}
-	case WM_ERASEBKGND: {
-		break;
-	}
-	case WM_SIZE: {
-		realClientX = (map_width * 16 * zoomLevel);
-		realClientY = (map_height * 16 * zoomLevel);
-		MoveWindow(hwnd, 266, 43, min(realClientX, windowSizeW - 266), min(realClientY, windowSizeH - 43), TRUE);
-		clientX = LOWORD(lParam);
-		clientY = HIWORD(lParam);
-		showScrollV = realClientY > (windowSizeH - 43);
-		showScrollH = realClientX > (windowSizeW - 266);
-		iVScrollPos *= showScrollV;
-		iHScrollPos *= showScrollH;
-		SendMessage(hwnd, WM_VSCROLL, wParam, lParam);
-		SendMessage(hwnd, WM_HSCROLL, wParam, lParam);
-		ShowScrollBar(hwnd, SB_VERT, showScrollV);
-		ShowScrollBar(hwnd, SB_HORZ, showScrollH);
-		break;
-	}
-	case WM_VSCROLL: {
-		switch LOWORD(wParam) {
-		case SB_THUMBTRACK:
-			iVScrollPos = HIWORD(wParam);
-		}
-		if (iVScrollPos != GetScrollPos(hwnd, SB_VERT)) {
-			SetScrollPos(hwnd, SB_VERT, iVScrollPos, FALSE);
-			InvalidateRect(hwnd, NULL, FALSE);
-		}
-		break;
-	}
-	case WM_HSCROLL: {
-		switch LOWORD(wParam) {
-		case SB_THUMBTRACK:
-			iHScrollPos = HIWORD(wParam);
-		}
-		if (iHScrollPos != GetScrollPos(hwnd, SB_HORZ)) {
-			SetScrollPos(hwnd, SB_HORZ, iHScrollPos, FALSE);
-			InvalidateRect(hwnd, NULL, FALSE);
-		}
-		break;
-	}
-	case WM_MOUSEMOVE: {
-		mouseX = LOWORD(lParam);
-		mouseY = HIWORD(lParam);
-
-		int offsetScreenY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43)));
-		int selIndY = (mouseY + offsetScreenY) / (16 * zoomLevel);
-		int selIndX = (mouseX) / (16 * zoomLevel);
-
-		int ix = mouseX / (16 * zoomLevel) * (16 * zoomLevel);
-		int iy = mouseY / (16 * zoomLevel) * (16 * zoomLevel);
-		if (mapIndexX != ix || mapIndexY != iy) {
-			mapIndexX = ix;
-			mapIndexY = selIndY * 16 * zoomLevel;
-			CanDrawViewport = true;
-			InvalidateRect(hwnd, &focusrect, FALSE);
-			focusrect.left = ix;
-			focusrect.right = ix + (16 * zoomLevel);
-			//int yOffsetCorrected = offsetScreenY / (16 * zoomLevel) * (16 * zoomLevel);
-			focusrect.top = selIndY * (16 * zoomLevel) - (offsetY * zoomLevel);
-			focusrect.bottom = focusrect.top + (16 * zoomLevel);
-			CanDrawViewport = true;
-			InvalidateRect(hwnd, &focusrect, FALSE);
-		}
-		if (lMouseDown) {
-			int mx = mapIndexX / (16 * zoomLevel);
-			int my = selIndY;
-			if (map_data != NULL && mx >= 0 && mx < map_width && my >= 0 && my < map_height) {
-				if (map_data[mx + my * map_width] != selectedTileIndex) {
-					map_data[mx + my * map_width] = selectedTileIndex;
-					CanDrawViewport = true;
-					//focusrect.top = selIndY * (16 * zoomLevel);
-					//focusrect.bottom = focusrect.top + (16 * zoomLevel);
-					//InvalidateRect(hwnd, &focusrect, FALSE); //focusrect
-					HDC hdcSubWindow = GetDC(hwnd);
-					HDC hdcBackbuffer = CreateCompatibleDC(hdcSubWindow);
-					HDC hdcTileset = CreateCompatibleDC(hdcSubWindow);
-					SelectObject(hdcTileset, hTileset);
-					SelectObject(hdcBackbuffer, hTilesetBackbuffer);
-
-					backbufferPencil(selIndX, selIndY, hdcBackbuffer, hdcTileset);
-					InvalidateRect(hwnd, &focusrect, FALSE);
-
-					ReleaseDC(hwnd, hdcSubWindow);
-					DeleteDC(hdcBackbuffer);
-					DeleteDC(hdcTileset);
-				}
-			}
-		}
-		if (rMouseDown) {
-			int mx = mapIndexX / (16 * zoomLevel);
-			int my = selIndY;
-			if (map_data != NULL && mx >= 0 && mx < map_width && my >= 0 && my < map_height) {
-				if (map_data[mx + my * map_width] != selectedTileIndex) {
-					bucketFill(mx + my * map_width, map_data[mx + my * map_width], selectedTileIndex, hwnd, focusrect);
-					RECT blitRect = { 0 };
-					blitRect.right = map_width * 16 * zoomLevel;
-					blitRect.bottom = map_height * 16 * zoomLevel;
-					HDC hdcSubWindow = GetDC(hwnd);
-					HDC hdcBackbuffer = CreateCompatibleDC(hdcSubWindow);
-					HDC hdcTileset = CreateCompatibleDC(hdcSubWindow);
-					SelectObject(hdcTileset, hTileset);
-					SelectObject(hdcBackbuffer, hTilesetBackbuffer);
-					backbufferRender(blitRect, hdcBackbuffer, hdcTileset, offsetY);
-					ReleaseDC(hwnd, hdcSubWindow);
-					DeleteDC(hdcBackbuffer);
-					DeleteDC(hdcTileset);
-					//CanDrawViewport = true;
-					CanDrawViewport = true;
-					InvalidateRect(hwnd, NULL, FALSE);
-				}
-			}
-		}
-		break;
-	}
-	case WM_LBUTTONDOWN: {
-		lMouseDown = true;
-		SendMessage(hwnd, WM_MOUSEMOVE, wParam, lParam);
-		break;
-	}
-	case WM_LBUTTONUP: {
-		lMouseDown = false;
-		break;
-	}
-	case WM_RBUTTONDOWN: {
-		rMouseDown = true;
-		SendMessage(hwnd, WM_MOUSEMOVE, wParam, lParam);
-		break;
-	}
-	case WM_RBUTTONUP: {
-		rMouseDown = false;
-		break;
-	}
-	case WM_PAINT: {
-		HDC hdcPaint = BeginPaint(hwnd, &ps);
-		HDC hdcBackbuffer = CreateCompatibleDC(hdcPaint);
-		HDC hdcTileset = CreateCompatibleDC(hdcPaint);
-		SelectObject(hdcTileset, hTileset);
-		SelectObject(hdcBackbuffer, hTilesetBackbuffer);
-		SetDIBColorTable(hdcTileset, 0, 256, paletteInMemory);
-		offsetY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43)) / zoomLevel);
-		offsetX = ((float)iHScrollPos / 1000.0f) * ((realClientX - (windowSizeW - 266)) / zoomLevel);
-		if (CanDrawViewport) {
-			backbufferRender(ps.rcPaint, hdcBackbuffer, hdcTileset, offsetY);
-		}
-		CanDrawViewport = false; //false
-		int paintWidth = ps.rcPaint.right - ps.rcPaint.left;
-		int paintHeight = ps.rcPaint.bottom - ps.rcPaint.top;
-
-		SetDIBColorTable(hdcBackbuffer, 0, 256, paletteInMemory);
-		//BitBlt(hdcPaint, 0, 0, map_width * 16, map_height * 16, hdcBackbuffer, 0, 0, SRCCOPY);
-		StretchBlt(hdcPaint, ps.rcPaint.left, ps.rcPaint.top, paintWidth - (paintWidth % zoomLevel), paintHeight - (paintHeight % zoomLevel), hdcBackbuffer, ps.rcPaint.left / zoomLevel + offsetX, ps.rcPaint.top / zoomLevel + offsetY, paintWidth / zoomLevel, paintHeight / zoomLevel, SRCCOPY);
-		DrawFocusRect(hdcPaint, &focusrect);
-		DeleteDC(hdcTileset);
-		DeleteDC(hdcBackbuffer);
-		EndPaint(hwnd, &ps);
-		break;
-	}
-	
-	}
-	
-	return DefWindowProc(hwnd, message, wParam, lParam);
-}
-
-LRESULT CALLBACK TilePickerWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-	PAINTSTRUCT ps;
-	static HBITMAP hTileset;
-	static HBITMAP hTilesetBackbuffer;
-	static int mouseX, mouseY;
-	static RECT focusrect;
-	static int tilesInRow;
-	static int tilesInCol;
-	static int tileAmount;
-	switch (message) {
-	case WM_CREATE: {
-		tilepickerHWND = hwnd;
-		HDC hdc = GetWindowDC(hwnd);
-		hTileset = LoadImage(NULL, TEXT("res/space.bmp"), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
-		hTilesetBackbuffer = CreateCompatibleBitmap(hdc, TilesetDataWidth, TilesetDataHeight);
-		tilesInCol = TilesetDataHeight / 16;
-		tilesInRow = TilesetDataWidth / 16;
-		tileAmount = tilesInCol * tilesInRow;
-		DeleteDC(hdc);
-		break;
-	}
-	case WM_MOUSEMOVE: {
-		mouseX = LOWORD(lParam);
-		mouseY = HIWORD(lParam);
-		break;
-	}
-	case WM_LBUTTONDOWN: {
-		int sx = mouseX / 16;
-		int sy = mouseY / 16;
-		if (sx >= tilesInRow)
-			break;
-		if (sy >= tilesInCol)
-			break;
-		selectedTileIndex = sx + sy * tilesInRow; // should be width
-		InvalidateRect(hwnd, &focusrect, FALSE);
-		focusrect.left = sx * 16;
-		focusrect.right = sx * 16 + 16;
-		focusrect.top = sy * 16;
-		focusrect.bottom = sy * 16 + 16;
-		InvalidateRect(hwnd, &focusrect, FALSE);
-		break;
-	}
-	case WM_LBUTTONUP: {
-		SendMessage(viewportTest, WM_LBUTTONUP, wParam, lParam);
-		break;
-	}
-	case WM_RBUTTONUP: {
-		SendMessage(viewportTest, WM_RBUTTONUP, wParam, lParam);
-		break;
-	}
-	case WM_PAINT: {
-		HDC hdcPaint = BeginPaint(hwnd, &ps);
-		HDC hdcBackbuffer = CreateCompatibleDC(hdcPaint);
-		HDC hdcTileset = CreateCompatibleDC(hdcPaint);
-		SelectObject(hdcBackbuffer, hTilesetBackbuffer);
-		SelectObject(hdcTileset, hTileset);
-		BitBlt(hdcBackbuffer, 0, 0, TilesetDataWidth, TilesetDataHeight, hdcTileset, 0, 0, SRCCOPY);
-		DrawFocusRect(hdcBackbuffer, &focusrect);
-
-		BitBlt(hdcPaint, 0, 0, TilesetDataWidth, TilesetDataHeight, hdcBackbuffer, 0, 0, SRCCOPY);
-		DeleteDC(hdcBackbuffer);
-		DeleteDC(hdcTileset);
-		EndPaint(hwnd, &ps);
-		break;
-	}
-
-	}
-	return DefWindowProc(hwnd, message, wParam, lParam);
-}
-
-LRESULT CALLBACK LayerManagerWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-	switch (message) {
-	case WM_CREATE: {
-		for (int i = 0; i < map_layers->size; i++) {
-			CreateCheckbox(hwnd, 0, i * 25, 100, 25, TEXT("Layer"));
-		}
-		break;
-	}
-	case WM_LBUTTONUP: {
-		SendMessage(viewportTest, WM_LBUTTONUP, wParam, lParam);
-		break;
-	}
-	case WM_RBUTTONUP: {
-		SendMessage(viewportTest, WM_RBUTTONUP, wParam, lParam);
-		break;
-	}
-	//case WM_NCACTIVATE:
-		// Prevent the non-client area from deactivating
-		//return DefWindowProc(hwnd, message, TRUE, lParam);
-	}
-	return DefWindowProc(hwnd, message, wParam, lParam);
-}
-
-
-
-void HSVtoRGB(float h, float s, float v, uint8_t* r, uint8_t* g, uint8_t* b) {
-	int i = (int)(h * 6);
-	float f = h * 6.0f - (float)i;
-	float p = v * (1.0f - s);
-	float q = v * (1.0f - f * s);
-	float t = v * (1.0f - (1.0f - f) * s);
-
-	switch (i % 6) {
-	case 0: {
-		*r = (int)(v * 255.0f);
-		*g = (int)(t * 255.0f);
-		*b = (int)(p * 255.0f);
-		break;
-	}
-	case 1: {
-		*r = (int)(q * 255.0f);
-		*g = (int)(v * 255.0f);
-		*b = (int)(p * 255.0f);
-		break;
-	}
-	case 2: {
-		*r = (int)(p * 255.0f);
-		*g = (int)(v * 255.0f);
-		*b = (int)(t * 255.0f);
-		break;
-	}
-	case 3: {
-		*r = (int)(p * 255.0f);
-		*g = (int)(q * 255.0f);
-		*b = (int)(v * 255.0f);
-		break;
-	}
-	case 4: {
-		*r = (int)(t * 255.0f);
-		*g = (int)(p * 255.0f);
-		*b = (int)(v * 255.0f);
-		break;
-	}
-	case 5: {
-		*r = (int)(v * 255.0f);
-		*g = (int)(p * 255.0f);
-		*b = (int)(q * 255.0f);
-		break;
-	}
-	}
-	return;
-}
-
-
-HWND* paletteButtons;
-
-LRESULT CALLBACK PaletteManagerWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-	static HBRUSH hBrushButton;
-	
-	static CHOOSECOLOR cc;
-	static COLORREF custClr[16];
-	static DWORD rgbCurrent;
-
-	static HBITMAP colorWheel;
-	static void* colorWheelData;
-
-	static PAINTSTRUCT ps;
-
-	switch (message) {
-	case WM_CREATE: {
-		/*for (int i = 0; i < map_layers->size; i++) {
-			CreateCheckbox(hwnd, 0, i * 25, 100, 25, TEXT("Layer"));
-		}*/
-		paletteButtons = malloc(sizeof(HWND) * 256);
-		if (!paletteButtons) {
-			SendMessage(hwnd, WM_DESTROY, wParam, lParam);
-			return 0;
-		}
-		for (int i = 0; i < 256; i++) {
-			int dim_x = (i % 16) * 17;
-			int dim_y = (i / 16) * 13;
-			paletteButtons[i] = CreateColorButton(hwnd, dim_x, dim_y, 16, 12, NULL);
-		}
-		hBrushButton = CreateSolidBrush(RGB(255, 0, 0));
-
-		cc.lStructSize = sizeof(cc);
-		cc.hwndOwner = hwnd;
-		cc.lpCustColors = (LPDWORD)custClr;
-		cc.rgbResult = rgbCurrent;
-		cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-
-		HDC hdc = GetWindowDC(hwnd);
-		BITMAPINFO bmpInfo;
-		bmpInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-		bmpInfo.bmiHeader.biBitCount = 32;
-		bmpInfo.bmiHeader.biCompression = BI_RGB;
-		bmpInfo.bmiHeader.biSizeImage = 0;
-		bmpInfo.bmiHeader.biWidth = 256;
-		bmpInfo.bmiHeader.biHeight = -16;
-		bmpInfo.bmiHeader.biPlanes = 1;
-		bmpInfo.bmiHeader.biClrUsed = 0;
-		bmpInfo.bmiHeader.biClrImportant = 0;
-		bmpInfo.bmiHeader.biXPelsPerMeter = 0;
-		bmpInfo.bmiHeader.biYPelsPerMeter = 0;
-		colorWheel = CreateDIBSection(hdc, &bmpInfo, DIB_RGB_COLORS, &colorWheelData, NULL, 0);
-
-		uint8_t* rgb = (uint8_t*)colorWheelData;
-		uint32_t* pix = (uint32_t*)colorWheelData;
-		for (int y = 0; y < 16; y++) {
-			for (int x = 0; x < 256; x++) {
-				float hsvx = (float)x / 255.0f;
-				HSVtoRGB(hsvx, 1.0f, 1.0f, rgb, rgb + 1, rgb + 2);
-				pix++;
-				rgb = pix;
-			}
-		}
-
-		DeleteDC(hdc);
-		break;
-	}
-	case WM_CTLCOLORBTN: {
-		int index = 0;
-		for (int i = 0; i < 256; i++) {
-			if (lParam == paletteButtons[i]) {
-				index = i;
-				break;
-			}
-		}
-		RGBQUAD* cpal = paletteInMemory + index;
-		DeleteObject(hBrushButton);
-		hBrushButton = CreateSolidBrush(RGB(cpal->rgbRed, cpal->rgbGreen, cpal->rgbBlue));
-		return (LRESULT)hBrushButton;
-	}
-	case WM_COMMAND: {
-		int index = 0;
-		for (int i = 0; i < 256; i++) {
-			if (lParam == paletteButtons[i]) {
-				index = i;
-				break;
-			}
-		}
-		RGBQUAD* cpal = paletteInMemory + index;
-		cc.rgbResult = RGB(cpal->rgbRed, cpal->rgbGreen, cpal->rgbBlue);
-		if (ChooseColor(&cc) == TRUE) {
-			paletteInMemory[index].rgbRed = GetRValue(cc.rgbResult);
-			paletteInMemory[index].rgbGreen = GetGValue(cc.rgbResult);
-			paletteInMemory[index].rgbBlue = GetBValue(cc.rgbResult);
-			InvalidateRect(hwnd, NULL, FALSE);
-			InvalidateRect(viewportTest, NULL, FALSE);
-		}
-
-		break;
-	}
-	case WM_PAINT: {
-		HDC hdcPaint = BeginPaint(hwnd, &ps);
-		HDC hdcColorWheel = CreateCompatibleDC(hdcPaint);
-		SelectObject(hdcColorWheel, colorWheel);
-
-		BitBlt(hdcPaint, 0, 256, 256, 16, hdcColorWheel, 0, 0, SRCCOPY);
-
-		DeleteDC(hdcColorWheel);
-		EndPaint(hwnd, &ps);
-	}
-	case WM_LBUTTONUP: {
-		SendMessage(viewportTest, WM_LBUTTONUP, wParam, lParam);
-		break;
-	}
-	case WM_RBUTTONUP: {
-		SendMessage(viewportTest, WM_RBUTTONUP, wParam, lParam);
-		break;
-	}
-	case WM_DESTROY:
-		// Clean up the brush when the window is destroyed
-		DeleteObject(hBrushButton);
-		//PostQuitMessage(0);
-		return 0;
-	//case WM_NCACTIVATE:
-		// Prevent the non-client area from deactivating
-		//return DefWindowProc(hwnd, message, TRUE, lParam);
-	}
 	return DefWindowProc(hwnd, message, wParam, lParam);
 }
