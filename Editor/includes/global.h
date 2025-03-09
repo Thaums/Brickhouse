@@ -24,6 +24,7 @@ unsigned int selectedTileIndex;
 unsigned int zoomLevel;
 HWND viewportTest;
 HWND tilepickerHWND;
+HWND overviewHWND;
 bool CanDrawViewport;
 
 unsigned char* TilesetDataToSend;
@@ -42,6 +43,7 @@ extern const TCHAR szTilesetName[];
 extern const TCHAR szViewportName[];
 extern const TCHAR szLayerManagerName[];
 extern const TCHAR szPaletteManagerName[];
+extern const TCHAR szOverviewName[];
 
 RGBQUAD paletteInMemory[256];
 

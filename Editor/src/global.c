@@ -4,6 +4,7 @@ const TCHAR szTilesetName[] = TEXT("TilesetPicker");
 const TCHAR szViewportName[] = TEXT("Viewport");
 const TCHAR szLayerManagerName[] = TEXT("Layer Manager");
 const TCHAR szPaletteManagerName[] = TEXT("Palette Manager");
+const TCHAR szOverviewName[] = TEXT("Overview");
 
 void initGlobals() {
 	tickStart = 0;
@@ -11,6 +12,7 @@ void initGlobals() {
 	selectedTileIndex = 0;
 	zoomLevel = 3;
 	viewportTest = NULL;
+	overviewHWND = NULL;
 	tilepickerHWND = NULL;
 	CanDrawViewport = true;
 	TilesetDataWidth = 0;

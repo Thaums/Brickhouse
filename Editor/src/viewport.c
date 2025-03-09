@@ -53,6 +53,11 @@ HBITMAP CreateAlphaBitmap(HDC hdc, int width, int height)
 	return hBitmap;
 }
 
+void addElement(ElementEditor* element, int index) {
+	stackPush(elementStack, nstackCreate(element));
+	CreateCheckbox(overviewHWND, 0, index * 25, 100, 25, element->label);
+}
+
 LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	PAINTSTRUCT ps;
 	static HBITMAP hTileset;
@@ -67,16 +72,23 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	static bool rMouseDown = false;
 	static bool showScrollV = false;
 	static bool showScrollH = false;
+	static bool lMouseWasPressed = false;
 	static int iVScrollPos = 0;
 	static int iHScrollPos = 0;
 	static int offsetY;
 	static int offsetX;
+
+	static ElementEditor* elemNew = NULL;
+	static RECT redraw;
+	static RECT cursorRect;
 
 	static void* imgay;
 
 	static int brushSize = 1;
 
 	static HBRUSH hElementBrush;
+
+	static int numOfElements;
 
 	static void* pTileset;
 	switch (message) {
@@ -116,21 +128,6 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 		SetScrollRange(hwnd, SB_HORZ, 0, 1000, FALSE);
 		SetScrollRange(hwnd, SB_VERT, 0, 1000, FALSE);
 
-		ElementEditor* etest1 = malloc(sizeof(ElementEditor));
-		etest1->collider.pos.x = 0.0f;
-		etest1->collider.pos.y = 0.0f;
-		etest1->collider.dim.w = 16.0f;
-		etest1->collider.dim.h = 16.0f;
-
-		ElementEditor* etest2 = malloc(sizeof(ElementEditor));
-		etest2->collider.pos.x = 50.0f;
-		etest2->collider.pos.y = 50.0f;
-		etest2->collider.dim.w = 100.0f;
-		etest2->collider.dim.h = 100.0f;
-
-		stackPush(elementStack, nstackCreate(etest1));
-		stackPush(elementStack, nstackCreate(etest2));
-
 		break;
 	}
 	case WM_ERASEBKGND: {
@@ -139,11 +136,11 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	case WM_SIZE: {
 		realClientX = (map_width * 16 * zoomLevel);
 		realClientY = (map_height * 16 * zoomLevel);
-		MoveWindow(hwnd, 266, 66, min(realClientX, windowSizeW - 266), min(realClientY, windowSizeH - 43 - 23), TRUE);
+		MoveWindow(hwnd, 266, 66, min(realClientX, windowSizeW - 266 - 266), min(realClientY, windowSizeH - 43 - 23 - 100), TRUE);
 		clientX = LOWORD(lParam);
 		clientY = HIWORD(lParam);
-		showScrollV = realClientY > (windowSizeH - 43 - 23);
-		showScrollH = realClientX > (windowSizeW - 266);
+		showScrollV = realClientY > (windowSizeH - 43 - 23 - 100);
+		showScrollH = realClientX > (windowSizeW - 266 - 266);
 		iVScrollPos *= showScrollV;
 		iHScrollPos *= showScrollH;
 		SendMessage(hwnd, WM_VSCROLL, wParam, lParam);
@@ -180,8 +177,8 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 		if (!(wParam & MK_LBUTTON))
 			lMouseDown = false;
 
-		int offsetScreenY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43 - 23)));
-		int offsetScreenX = ((float)iHScrollPos / 1000.0f) * ((realClientX - (windowSizeW - 266)));
+		int offsetScreenY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43 - 23 - 100)));
+		int offsetScreenX = ((float)iHScrollPos / 1000.0f) * ((realClientX - (windowSizeW - 266 - 266)));
 		int selIndY = (mouseY + (offsetScreenY)) / (16 * zoomLevel);
 		int selIndX = (mouseX + (offsetScreenX)) / (16 * zoomLevel);
 
@@ -252,16 +249,71 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 			}
 		}
 		else if (g_viewport_mode == VMODE_ELEM) {
-			if (lMouseDown) {
-				ElementEditor* elemNew = malloc(sizeof(ElementEditor));
-				int ex = mouseX * zoomLevel - (offsetX * (zoomLevel));
-				int ey = mouseY * zoomLevel - (offsetY * (zoomLevel));
-				elemNew->collider.pos.x = mouseX / zoomLevel + (offsetX / (zoomLevel));
-				elemNew->collider.pos.y = mouseY / zoomLevel + (offsetY / zoomLevel);
-				elemNew->collider.dim.w = 16.0f;
-				elemNew->collider.dim.h = 16.0f;
-				stackPush(elementStack, nstackCreate(elemNew));
+			/*
+			cursorRect.left--;
+			cursorRect.right+=2;
+			cursorRect.top--;
+			cursorRect.bottom+=2;
+			InvalidateRect(hwnd, &cursorRect, FALSE);
+			cursorRect.left = mouseX - 20;
+			cursorRect.right = mouseX + 20;
+			cursorRect.top = mouseY - 20;
+			cursorRect.bottom = mouseY + 20;
+			InvalidateRect(hwnd, &cursorRect, FALSE);
+			*/
+
+			if (lMouseDown && !lMouseWasPressed) {
+				elemNew = malloc(sizeof(ElementEditor));
+				lMouseWasPressed = true;
+				if (elemNew != NULL) {
+					elemNew->collider.pos.x = mouseX / zoomLevel + (offsetX);
+					elemNew->collider.pos.y = mouseY / zoomLevel + (offsetY);
+					elemNew->collider.dim.w = 16.0f;
+					elemNew->collider.dim.h = 16.0f;
+					elemNew->color.rgbRed = randInt(0, 255);
+					elemNew->color.rgbGreen = randInt(0, 255);
+					elemNew->color.rgbBlue = randInt(0, 255);
+					elemNew->bgStyle = hatchStyles[randInt(0, 5)];
+					TCHAR* newLabel = malloc(sizeof(TCHAR) * 64);
+					wsprintf(newLabel, TEXT("Element %d"), numOfElements++);
+					elemNew->label = newLabel;
+					//stackPush(elementStack, nstackCreate(elemNew));
+					addElement(elemNew, numOfElements - 1);
+				}
+			}
+			if (lMouseDown && elemNew != NULL) {
+				elemNew->collider.dim.w = mouseX / zoomLevel + (offsetX) - elemNew->collider.pos.x;
+				elemNew->collider.dim.h = mouseY / zoomLevel + (offsetY) - elemNew->collider.pos.y;
+				
+				InvalidateRect(hwnd, &redraw, FALSE);
+				redraw.left = elemNew->collider.pos.x * zoomLevel - (offsetX * (zoomLevel));
+				redraw.right = (elemNew->collider.pos.x + elemNew->collider.dim.w) * zoomLevel - (offsetX * (zoomLevel));
+				redraw.top = elemNew->collider.pos.y * zoomLevel - (offsetY * (zoomLevel));
+				redraw.bottom = (elemNew->collider.pos.y + elemNew->collider.dim.h) * zoomLevel - (offsetY * (zoomLevel));
+				if (elemNew->collider.dim.w < 0) {
+					redraw.right += -1;
+					redraw.left += -1;
+				}
+				if (elemNew->collider.dim.h < 0) {
+					redraw.bottom += -1;
+					redraw.top += -1;
+				}
+				InvalidateRect(hwnd, &redraw, FALSE);
+				
 				InvalidateRect(hwnd, NULL, FALSE);
+			}
+			if (!lMouseDown && elemNew != NULL) {
+				lMouseWasPressed = false;
+				if (elemNew->collider.dim.w < 0) {
+					elemNew->collider.pos.x = elemNew->collider.pos.x + elemNew->collider.dim.w;
+					elemNew->collider.dim.w = -elemNew->collider.dim.w;
+				}
+				if (elemNew->collider.dim.h < 0) {
+					elemNew->collider.pos.y = elemNew->collider.pos.y + elemNew->collider.dim.h;
+					elemNew->collider.dim.h = -elemNew->collider.dim.h;
+				}
+
+				elemNew = NULL;
 			}
 		}
 		break;
@@ -343,11 +395,11 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 				elemRect.top = elem->collider.pos.y * zoomLevel - (offsetY * (zoomLevel));
 				elemRect.bottom = (elem->collider.pos.y + elem->collider.dim.h) * zoomLevel - (offsetY * (zoomLevel));
 
-				hElementBrush = CreateHatchBrush(HS_BDIAGONAL, RGB(255, 0, 0));
-				HPEN elementBorder = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
+				hElementBrush = CreateHatchBrush(elem->bgStyle, RGB(elem->color.rgbRed, elem->color.rgbGreen, elem->color.rgbBlue));
+				HPEN elementBorder = CreatePen(PS_SOLID, 2, RGB(elem->color.rgbRed, elem->color.rgbGreen, elem->color.rgbBlue));
 				HBRUSH hOldBrush = (HBRUSH)SelectObject(hdcPaint, hElementBrush);
 				HPEN hOldPen = (HPEN)SelectObject(hdcPaint, elementBorder);
-				Rectangle(hdcPaint, elemRect.left, elemRect.top, elemRect.right, elemRect.bottom);
+				Rectangle(hdcPaint, elemRect.left + 1, elemRect.top + 1, elemRect.right, elemRect.bottom);
 				//Polygon(hdcPaint, slope, 4);
 				DeleteObject(hElementBrush);
 				DeleteObject(elementBorder);
@@ -357,6 +409,8 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 				cur = cur->up;
 			}
 		}
+		//Rectangle(hdcPaint, (mouseX / zoomLevel + (offsetX))* zoomLevel - (offsetX * zoomLevel) - 1, (mouseY / zoomLevel + (offsetY)) * zoomLevel - (offsetY * (zoomLevel)) - 1, (mouseX / zoomLevel + (offsetX))* zoomLevel - (offsetX * zoomLevel) + 1, (mouseY / zoomLevel + (offsetY))* zoomLevel - (offsetY * (zoomLevel)) + 1);
+		DrawFocusRect(hdcPaint, &cursorRect);
 
 		SetBkMode(hdcPaint, OPAQUE);
 

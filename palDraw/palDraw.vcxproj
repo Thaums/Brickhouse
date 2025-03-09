@@ -145,6 +145,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\coolmath.c" />
     <ClCompile Include="src\gameinfo.c" />
     <ClCompile Include="src\io.c" />
     <ClCompile Include="src\mapinfo.c" />
@@ -152,6 +153,7 @@
     <ClCompile Include="src\rle.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="includes\coolmath.h" />
     <ClInclude Include="includes\defines.h" />
     <ClInclude Include="includes\element.h" />
     <ClInclude Include="includes\gameinfo.h" />

@@ -30,6 +30,9 @@
     <ClCompile Include="src\gameinfo.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\coolmath.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="includes\palDraw.h">
@@ -54,6 +57,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\element.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\coolmath.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

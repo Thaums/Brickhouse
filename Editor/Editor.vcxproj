@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\celement.c" />
     <ClCompile Include="src\embed.c" />
     <ClCompile Include="src\global.c" />
     <ClCompile Include="src\layer.c" />

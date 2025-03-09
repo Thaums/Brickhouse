@@ -45,6 +45,9 @@
     <ClCompile Include="src\stack.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\celement.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\Icon.ico">

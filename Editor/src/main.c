@@ -25,6 +25,8 @@
 #include "viewport.h"
 #include "tilepicker.h"
 
+#include <coolmath.h>
+
 double GetTicks() {
 	LARGE_INTEGER result;
 	QueryPerformanceCounter(&result);
@@ -43,10 +45,6 @@ double time_left(void) {
 		return appTime - now;
 	}
 	return 0;
-}
-
-int randInt(int min, int max) {
-	return (rand() % (max - min + 1)) + min;
 }
 
 #define CMDLINELEN 512
@@ -296,6 +294,9 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 	wndclass.lpfnWndProc = PaletteManagerWndProc;
 	wndclass.lpszClassName = szPaletteManagerName;
 	RegisterClass(&wndclass);
+	wndclass.lpfnWndProc = OverviewWndProc;
+	wndclass.lpszClassName = szOverviewName;
+	RegisterClass(&wndclass);
 	
 	hwnd = CreateWindow(
 		szAppName,
@@ -450,6 +451,7 @@ void readPackedTexture(unsigned char* texture) {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	static HWND hwndTilepicker;
 	static HWND hwndViewport;
+	static HWND hwndObjects;
 	PAINTSTRUCT ps;
 	switch (message) {
 	case WM_CREATE: {
@@ -481,6 +483,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			(HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE),
 			NULL
 		);
+
+		hwndObjects = CreateWindow(
+			szOverviewName,
+			NULL,
+			WS_CHILDWINDOW | WS_VISIBLE,
+			0, 0, 0, 0,
+			hwnd,
+			3,
+			(HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE),
+			NULL
+		);
 		
 		//LaunchInfo Init
 		LaunchInfo.player.map = 0;
@@ -497,6 +510,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		HWND bkg = (HWND)GetWindowLong(hwnd, GWL_USERDATA);
 		MoveWindow(bkg, 0, 0, windowSizeW, windowSizeH, TRUE);
 		MoveWindow(hwndTilepicker, 0, 43, 256, windowSizeH - 43, TRUE);
+		//MoveWindow(hwndObjects, 0, 43, 256, windowSizeH - 43, TRUE);
+		MoveWindow(hwndObjects, windowSizeW - 266, 66, windowSizeW, windowSizeH - 43 - 23 - 100, TRUE);
 		int viewportX = 266;
 		//MoveWindow(hwndViewport, viewportX, 43, (map_width * 16 * zoomLevel) - viewportX, (map_height * 16 * zoomLevel) - 43, TRUE);
 		SendMessage(hwndViewport, WM_SIZE, wParam, lParam);
