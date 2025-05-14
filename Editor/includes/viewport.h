@@ -3,3 +3,5 @@
 #include <mapinfo.h>
 #include <coolmath.h>
 LRESULT CALLBACK ViewportWndProc(HWND, UINT, WPARAM, LPARAM);
+
+void removeElement(int index, int length);

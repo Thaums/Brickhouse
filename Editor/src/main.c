@@ -27,6 +27,8 @@
 
 #include <coolmath.h>
 
+#include "button.h"
+
 double GetTicks() {
 	LARGE_INTEGER result;
 	QueryPerformanceCounter(&result);
@@ -89,83 +91,7 @@ void RunExecutableWithArguments(const TCHAR* executablePath, const TCHAR* argume
 }
 
 
-HICON LoadIconWithSize(HINSTANCE hInstance, int iconID, int width, int height) {
-	return (HICON)LoadImage(
-		hInstance,
-		MAKEINTRESOURCE(iconID),
-		IMAGE_ICON,
-		width,
-		height,
-		LR_DEFAULTCOLOR
-	);
-}
 
-HWND CreateButton(HWND window, int x, int y, int w, int h, HICON icon, DWORD flags, int id) {
-	HWND result = CreateWindow(
-		TEXT("BUTTON"),
-		NULL,
-		flags,
-		x, y,
-		w, h,
-		window,
-		(HMENU)id,
-		GetWindowLong(window, GWL_HINSTANCE),
-		NULL
-	);
-	if (icon != NULL)
-		SendMessage(result, BM_SETIMAGE, IMAGE_ICON, (LPARAM)icon);
-	return result;
-}
-HWND CreateColorButton(HWND window, int x, int y, int w, int h, HICON icon) {
-	HWND result = CreateWindow(
-		TEXT("BUTTON"),
-		NULL,
-		WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-		x, y,
-		w, h,
-		window,
-		NULL,
-		GetWindowLong(window, GWL_HINSTANCE),
-		NULL
-	);
-	if (icon != NULL)
-		SendMessage(result, BM_SETIMAGE, IMAGE_ICON, (LPARAM)icon);
-	return result;
-}
-HWND CreateCheckbox(HWND window, int x, int y, int w, int h, TCHAR* text) {
-	HWND result = CreateWindow(
-		TEXT("BUTTON"),
-		text,
-		WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_LEFTTEXT,
-		x, y,
-		w, h,
-		window,
-		NULL,
-		GetWindowLong(window, GWL_HINSTANCE),
-		NULL
-	);
-	HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-	SendMessage(result, WM_SETFONT, (WPARAM)hFont, TRUE);
-	return result;
-}
-HWND CreateBackground(HWND window) {
-	RECT rect;
-	GetClientRect(window, &rect);
-	//AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, false);
-
-	HWND result = CreateWindowEx(0, TEXT("STATIC"),
-		NULL,
-		WS_CHILD | WS_VISIBLE | SS_SUNKEN,
-		0, 0,
-		rect.right - rect.left, rect.bottom - rect.top,
-		window,
-		NULL,
-		GetWindowLong(window, GWL_HINSTANCE),
-		NULL
-	);
-	SetWindowLong(window, GWL_USERDATA, (LONG)result);
-	return result;
-}
 
 unsigned char* paletteToResource(RGBQUAD* palette) {
 	int paletteSize = 256 * 3;
@@ -331,11 +257,6 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 
 	//SetWindowPos(hLayerManager, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-
-
-
-
-
 	ShowWindow(hwnd, iCmdShow);
 	UpdateWindow(hwnd);
 
@@ -446,7 +367,147 @@ void readPackedTexture(unsigned char* texture) {
 	return;
 }
 
+void _UpdateRuntimeSettings(const TCHAR* executablePath) {
+	embed_nofile(executablePath, SerializeGameInfo(&LaunchInfo), sizeof(GameInfo), RRID_GAMEINFO);
+}
 
+void _UpdateRuntimeMapCollection(const TCHAR* executablePath) {
+	embed_nofile(executablePath, SerializeMapInfoList(MapCollection), MapCollectionLength * sizeof(MapInfo) + sizeof(unsigned int), RRID_MAPINFO);
+}
+
+void _UpdateRuntimePalette(const TCHAR* executablePath, int resourceID, RGBQUAD* palette) {
+	unsigned char* palette_data = paletteToResource(palette);
+	embed_nofile(executablePath, palette_data, 256 * 3, resourceID);
+	free(palette_data);
+}
+
+void _UpdateRuntimeBMP(const TCHAR* executablePath, int resourceID, int width, int height, char* bitmap) {
+	unsigned char* TilesetDataPacked = packTexture(width, height, bitmap);
+	embed_nofile(executablePath, TilesetDataPacked, width * height, resourceID);
+	free(TilesetDataPacked);
+}
+
+#define NUMOFMAPLAYERS 2
+#define _RLE_MAPDATATYPE uint16_t
+#define RLE_MAPDATA _RLE_MAPDATATYPE*
+
+size_t RLE_MAPDATA_GetLength(RLE_MAPDATA md) {
+	return *(size_t*)md;
+}
+
+#define RLE_MAPDATA_SIZEPLUSHEADER(enc) sizeof(size_t) + sizeof(_RLE_MAPDATATYPE) * NUMOFMAPLAYERS * RLE_MAPDATA_GetLength(enc)
+
+int _UpdateRuntimeMap(const TCHAR* executablePath, EditorMap* map) {
+	MapInfo* record = MapCollection + map->id;
+	int area = record->dim.w * record->dim.h;
+	int length = area * NUMOFMAPLAYERS;
+	uint16_t* writeBuffer = malloc(length * sizeof(uint16_t));
+	if (!writeBuffer) {
+		return 0;
+	}
+	uint16_t* write = writeBuffer;
+
+	/*
+	* Write visual background tiles
+	*/
+	uint16_t* bg_layer = map->tilemap;
+	for (int i = 0; i < area; i++) {
+		*write++ = *bg_layer++;
+	}
+	bg_layer = NULL;
+
+	/*
+	* Write collision tiles
+	*/
+	uint16_t* col_layer = map->collision;
+	for (int i = 0; i < area; i++) {
+		*write++ = *col_layer++;
+	}
+	col_layer = NULL;
+
+	write = NULL;
+
+	/*
+	* Compress & patch runtime w/ all tile data for this map
+	*/
+	RLE_MAPDATA writeBufferCompressedRLE = RunLengthEncode(writeBuffer, length);
+	embed_nofile(executablePath, writeBufferCompressedRLE, RLE_MAPDATA_SIZEPLUSHEADER(writeBufferCompressedRLE), LaunchInfo.resources.indexMapResource + map->id);
+	free(writeBufferCompressedRLE);
+	writeBufferCompressedRLE = NULL;
+
+	return 1;
+}
+
+void UpdateRuntimeResources() {
+	const TCHAR* executablePath = TEXT("runtime.exe");
+	const TCHAR* arguments = TEXT("test.map");
+
+	// Settings
+	_UpdateRuntimeSettings(executablePath);
+
+	// Map Records
+	_UpdateRuntimeMapCollection(executablePath);
+
+	StackNode* cur_map = mapStack->bottom;
+	for (int i = 0; i < mapStack->size; i++) {
+		if (!_UpdateRuntimeMap(executablePath, (EditorMap*)cur_map->data))
+			return 0;
+		cur_map = cur_map->up;
+	}
+	// Map that gets immediately loaded on launch
+	//if (!_UpdateRuntimeMap(executablePath, LaunchInfo.resources.indexMapResource + LaunchInfo.player.map))
+	//	return 0;
+
+	// Only Palette for now
+	_UpdateRuntimePalette(executablePath, 112, paletteInMemory);
+
+	// The Tileset
+	_UpdateRuntimeBMP(executablePath, 113, TilesetDataWidth, TilesetDataHeight, TilesetDataToSend);
+	return 1;
+}
+
+HANDLE OpenFileForWriting(TCHAR* filePath) {
+	// Create or open the file
+	HANDLE hFile = CreateFile(
+		filePath,                // File path
+		GENERIC_WRITE,           // Desired access
+		0,                       // Share mode
+		NULL,                    // Security attributes
+		CREATE_ALWAYS,           // Creation disposition
+		FILE_ATTRIBUTE_NORMAL,   // Flags and attributes
+		NULL                     // Template file handle
+	);
+
+	if (hFile == INVALID_HANDLE_VALUE) {
+		printf("Could not create or open file (error %lu)\n", GetLastError());
+		return;
+	}
+
+	return hFile;
+}
+
+void CloseFileHandle(HANDLE hFile) {
+	CloseHandle(hFile);
+}
+
+void AppendToFile(HANDLE hFile, const char* data, unsigned int length) {
+	// Write data to the file
+	DWORD bytesWritten;
+	BOOL result = WriteFile(
+		hFile,                  // Handle to the file
+		data,                   // Data to write
+		length,    // Number of bytes to write
+		&bytesWritten,          // Number of bytes written
+		NULL                    // Overlapped structure
+	);
+
+	if (!result) {
+		printf("Failed to write to file (error %lu)\n", GetLastError());
+	}
+	else {
+		printf("Successfully written %lu bytes to file\n", bytesWritten);
+	}
+}
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	static HWND hwndTilepicker;
@@ -533,81 +594,78 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		const TCHAR* arguments = TEXT("test.map");
 
 		switch (LOWORD(wParam)) {
-		case IDM_FILE_EXIT: {
-			PostQuitMessage(0);
-			break;
-		}
-		case IDM_TEST_PLAY: {
-			embed_nofile(executablePath, SerializeGameInfo(&LaunchInfo), sizeof(GameInfo), RRID_GAMEINFO);
-			embed_nofile(executablePath, SerializeMapInfoList(MapCollection), MapCollectionLength * sizeof(MapInfo) + sizeof(unsigned int), RRID_MAPINFO);
-
-			uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
-			if (!writeBuffer) {
+			case IDM_FILE_EXIT: {
+				PostQuitMessage(0);
 				break;
 			}
-			for (int i = 0; i < (map_width * map_height); i++) {
-				writeBuffer[i] = map_data[i];
-			}
-			uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
-			size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
-			size_t RLELength = *getRLELength;
-			embed_nofile(executablePath, writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength, LaunchInfo.resources.indexMapResource);
-			free(writeBufferCompressedRLE);
-			writeBufferCompressedRLE = NULL;
+			case IDM_TEST_PLAY: {
+				UpdateRuntimeResources();
 
-			unsigned char* palette_data = paletteToResource(paletteInMemory);
-			embed_nofile(executablePath, palette_data, 256 * 3, 112);
-			free(palette_data);
-
-			unsigned char* TilesetDataPacked = packTexture(TilesetDataWidth, TilesetDataHeight, TilesetDataToSend);
-			embed_nofile(executablePath, TilesetDataPacked, 256 * 256, 113);
-			free(TilesetDataPacked);
-
-			RunExecutableWithArguments(executablePath, arguments);
-			break;
-		}
-		case IDM_FILE_SAVE: {
-			uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
-			if (!writeBuffer) {
+				RunExecutableWithArguments(executablePath, arguments);
 				break;
 			}
-			for (int i = 0; i < (map_width * map_height); i++) {
-				writeBuffer[i] = map_data[i];
+			case IDM_FILE_SAVE: {
+
+				HANDLE project = OpenFileForWriting(TEXT("test.bhproj"));
+				char* buffer = SerializeMapInfoList(MapCollection);
+				AppendToFile(project, buffer, MapCollectionLength * sizeof(MapInfo) + sizeof(unsigned int));
+				free(buffer);
+				StackNode* current = mapStack->bottom;
+				for (int i = 0; i < mapStack->size; i++) {
+					EditorMap* cur_map = current->data;
+					MapInfo* cur_map_info = MapCollection + cur_map->id;
+					AppendToFile(project, cur_map->tilemap, cur_map_info->dim.w * cur_map_info->dim.h * sizeof(uint16_t));
+					AppendToFile(project, cur_map->collision, cur_map_info->dim.w * cur_map_info->dim.h * sizeof(uint16_t));
+					current = current->up;
+				}
+
+				CloseFileHandle(project);
+				/*
+				uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
+				if (!writeBuffer) {
+					break;
+				}
+				for (int i = 0; i < (map_width * map_height); i++) {
+					writeBuffer[i] = map_data[i];
+				}
+				WriteToFile(TEXT("test.map"), (char*)writeBuffer, map_width * map_height * sizeof(uint16_t));
+
+				uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
+
+				size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
+				size_t RLELength = *getRLELength;
+				//writeBufferCompressedRLE = getRLELength + 1;
+
+				WriteToFile(TEXT("testCompressed.map"), (char*)writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength);
+
+				uint16_t* writeBufferUncompressedRLE = RunLengthDecode(writeBufferCompressedRLE);
+				WriteToFile(TEXT("testUncompressed.map"), writeBufferUncompressedRLE, map_width * map_height * sizeof(uint16_t));
+
+				//embed_nofile(executablePath, writeBuffer, map_width * map_height, 101);
+				free(writeBuffer);
+				writeBuffer = NULL;
+				free(writeBufferCompressedRLE);
+				writeBufferCompressedRLE = NULL;
+				free(writeBufferUncompressedRLE);
+				writeBufferUncompressedRLE = NULL;
+				*/
+				/*int length = CMDLINELEN;
+				TCHAR commandLine[CMDLINELEN];
+				//_tprintf(arguments);
+				_sntprintf_s(commandLine, CMDLINELEN, 100, TEXT("\"%s\""), executablePath);*/
+
+				//embed(executablePath, arguments, 101);
+				/*
+				char modulePath[1000];
+				GetCurrentDirectoryA(1000, modulePath);
+				printf(modulePath);
+				*/
+				break;
 			}
-			WriteToFile(TEXT("test.map"), (char*)writeBuffer, map_width * map_height * sizeof(uint16_t));
-
-			uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
-
-			size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
-			size_t RLELength = *getRLELength;
-			//writeBufferCompressedRLE = getRLELength + 1;
-
-			WriteToFile(TEXT("testCompressed.map"), (char*)writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength);
-
-			uint16_t* writeBufferUncompressedRLE = RunLengthDecode(writeBufferCompressedRLE);
-			WriteToFile(TEXT("testUncompressed.map"), writeBufferUncompressedRLE, map_width * map_height * sizeof(uint16_t));
-
-			//embed_nofile(executablePath, writeBuffer, map_width * map_height, 101);
-			free(writeBuffer);
-			writeBuffer = NULL;
-			free(writeBufferCompressedRLE);
-			writeBufferCompressedRLE = NULL;
-			free(writeBufferUncompressedRLE);
-			writeBufferUncompressedRLE = NULL;
-
-			/*int length = CMDLINELEN;
-			TCHAR commandLine[CMDLINELEN];
-			//_tprintf(arguments);
-			_sntprintf_s(commandLine, CMDLINELEN, 100, TEXT("\"%s\""), executablePath);*/
-
-			//embed(executablePath, arguments, 101);
-			/*
-			char modulePath[1000];
-			GetCurrentDirectoryA(1000, modulePath);
-			printf(modulePath);
-			*/
-			break;
-		}
+			case IDM_FILE_OPEN: {
+				printf("Open");
+				break;
+			}
 		}
 		if (lParam == TMenuButtons.zoomOut) {
 			int izoom = zoomLevel;

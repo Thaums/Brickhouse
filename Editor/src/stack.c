@@ -16,11 +16,12 @@ StackNode* nstackCreate(void* data) {
 	return result;
 }
 
-void nstackFree(StackNode* node) {
+void* nstackFree(StackNode* node) {
 	//node->data = NULL;
+	void* result = node->data;
 	free(node);
 	node = NULL;
-	return;
+	return result;
 }
 
 void stackFree(Stack* list) {
@@ -51,11 +52,12 @@ bool stackPush(Stack* list, StackNode* node) {
 }
 
 //remember to free whatever data was inside the node before calling this function
-bool stackPop(Stack* list, int index) {
+void* stackPop(Stack* list, int index) {
+	void* result = NULL;
 	if (list->size == 0)
-		return false;
+		return NULL;
 	if (index >= list->size)
-		return false;
+		return NULL;
 	if (list->size == 1) {
 		nstackFree(list->top);
 		list->top = NULL;
@@ -82,10 +84,10 @@ bool stackPop(Stack* list, int index) {
 				cur->down->up = cur->up;
 				cur->up->down = cur->down;
 			}
-			nstackFree(cur);
+			result = nstackFree(cur);
 			cur = NULL;
 		}
 	}
 	list->size--;
-	return true;
+	return result;
 }

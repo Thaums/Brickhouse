@@ -14,9 +14,20 @@
 #define VMODE_ELEM 1
 #define VMODE_COL  2
 
+typedef struct EditorMap {
+	uint32_t id;
+	uint16_t* tilemap;
+	uint16_t* collision;
+} EditorMap;
+
 
 #ifndef BRICKHOUSE_GLOBALS
 #define BRICKHOUSE_GLOBALS
+/*
+struct Editor {
+
+} Editor;
+*/
 double appTime;
 double tickStart;
 
@@ -34,6 +45,7 @@ int TilesetDataHeight;
 unsigned int windowSizeW, windowSizeH;
 
 uint16_t* map_data;
+uint16_t* collision_data;
 unsigned int map_width;
 unsigned int map_height;
 
@@ -50,6 +62,7 @@ RGBQUAD paletteInMemory[256];
 int g_viewport_mode;
 
 Stack* elementStack;
+Stack* mapStack;
 
 #endif // !_BRICKHOUSE_GLOBALS
 

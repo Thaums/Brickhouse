@@ -1,4 +1,7 @@
 #include "viewport.h"
+#include "button.h"
+
+
 
 void UpdateMapInfoCollection(unsigned int id, unsigned int w, unsigned int h) {
 	MapCollectionLength++;
@@ -6,8 +9,8 @@ void UpdateMapInfoCollection(unsigned int id, unsigned int w, unsigned int h) {
 	if (updated == NULL) {
 		return;
 	}
-	if (MapCollection != NULL)
-		free(MapCollection);
+	//if (MapCollection != NULL)
+	//	free(MapCollection);
 	MapCollection = updated;
 	for (int i = 0; i < MapCollectionLength - 1; i++) {
 		updated++;
@@ -18,15 +21,34 @@ void UpdateMapInfoCollection(unsigned int id, unsigned int w, unsigned int h) {
 	return;
 }
 
-void CreateMap() {
-	map_width = 50;
-	map_height = 50;
-	map_data = malloc(sizeof(int) * map_width * map_height);
-	if (map_data == NULL)
-		return;
-	for (int i = 0; i < map_width * map_height; i++) {
-		map_data[i] = 0;
+EditorMap* EditorCreateMap(int id, int w, int h) {
+	EditorMap* newMap = malloc(sizeof(EditorMap));
+	if (!newMap)
+		return NULL;
+	//newMap->info.dim.w = w;
+	//newMap->info.dim.h = h;
+	newMap->tilemap = malloc(sizeof(uint16_t) * w * h);
+	newMap->collision = malloc(sizeof(uint16_t) * w * h);
+	if (newMap->tilemap == NULL)
+		return NULL;
+	if (newMap->collision == NULL)
+		return NULL;
+	for (int i = 0; i < w * h; i++) {
+		newMap->tilemap[i] = 0;
+		newMap->collision[i] = 0;
 	}
+	newMap->id = id;
+	stackPush(mapStack, nstackCreate(newMap));
+	//newMap->info.info.id = mapStack->size;
+	return newMap;
+}
+
+void CreateMap(unsigned int w, unsigned int h) {
+	map_width = w;
+	map_height = h;
+	EditorMap* a_map = EditorCreateMap(MapCollectionLength, map_width, map_height);
+	map_data = a_map->tilemap;
+	collision_data = a_map->collision;
 	UpdateMapInfoCollection(MapCollectionLength, map_width, map_height);
 	return;
 }
@@ -55,7 +77,18 @@ HBITMAP CreateAlphaBitmap(HDC hdc, int width, int height)
 
 void addElement(ElementEditor* element, int index) {
 	stackPush(elementStack, nstackCreate(element));
-	CreateCheckbox(overviewHWND, 0, index * 25, 100, 25, element->label);
+	element->checkbox = CreateCheckbox(overviewHWND, 0, index * 25, 100, 25, element->label, index);
+}
+
+void removeElement(int index, int length) {
+	ElementEditor* elem = stackPop(elementStack, index);
+	free(elem);
+	for (int i = index + 1; i < length; i++) {
+		HWND button = GetDlgItem(overviewHWND, i);
+		int newID = (int)GetMenu(button) - 1;
+		SetWindowLongPtr(button, GWL_ID, newID);
+		MoveWindow(button, 0, newID * 25, 100, 25, TRUE);
+	}
 }
 
 LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -82,13 +115,12 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	static RECT redraw;
 	static RECT cursorRect;
 
-	static void* imgay;
-
 	static int brushSize = 1;
 
 	static HBRUSH hElementBrush;
 
 	static int numOfElements;
+	static int labelNumber;
 
 	static void* pTileset;
 	switch (message) {
@@ -106,7 +138,8 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 
 		//SendMessage(tilepickerHWND, WM_CREATE, wParam, lParam);
 
-		CreateMap();
+		CreateMap(50, 10);
+		CreateMap(50, 50);
 
 		//hTilesetBackbuffer = CreateCompatibleBitmap(hdc, map_width * 16, map_height * 16);
 		hTilesetBackbuffer = BitmapFill(hdc, map_width * 16, map_height * 16, &pTileset, 0, paletteInMemory);
@@ -248,6 +281,43 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 				}
 			}
 		}
+		if (g_viewport_mode == VMODE_COL) {
+			if (mapIndexX != ix || mapIndexY != iy) {
+				mapIndexX = ix;
+				mapIndexY = iy;
+				CanDrawViewport = true;
+				InvalidateRect(hwnd, &focusrect, FALSE);
+				focusrect.left = ix - (offsetX * zoomLevel);
+				focusrect.right = focusrect.left + (16 * zoomLevel);
+				//int yOffsetCorrected = offsetScreenY / (16 * zoomLevel) * (16 * zoomLevel);
+				focusrect.top = iy - (offsetY * zoomLevel);
+				focusrect.bottom = focusrect.top + (16 * zoomLevel);
+				CanDrawViewport = true;
+				InvalidateRect(hwnd, &focusrect, FALSE);
+			}
+			if (lMouseDown) {
+				int mx = mapIndexX / (16 * zoomLevel);
+				int my = selIndY;
+				if (map_data != NULL && mx >= 0 && mx < map_width && my >= 0 && my < map_height) {
+					if (collision_data[mx + my * map_width] != selectedTileIndex) {
+						collision_data[mx + my * map_width] = selectedTileIndex;
+						CanDrawViewport = true;
+						HDC hdcSubWindow = GetDC(hwnd);
+						HDC hdcBackbuffer = CreateCompatibleDC(hdcSubWindow);
+						HDC hdcTileset = CreateCompatibleDC(hdcSubWindow);
+						SelectObject(hdcTileset, hTileset);
+						SelectObject(hdcBackbuffer, hTilesetBackbuffer);
+
+						backbufferPencil(selIndX, selIndY, hdcBackbuffer, hdcTileset);
+						InvalidateRect(hwnd, &focusrect, FALSE);
+
+						ReleaseDC(hwnd, hdcSubWindow);
+						DeleteDC(hdcBackbuffer);
+						DeleteDC(hdcTileset);
+					}
+				}
+			}
+		}
 		else if (g_viewport_mode == VMODE_ELEM) {
 			/*
 			cursorRect.left--;
@@ -262,29 +332,28 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 			InvalidateRect(hwnd, &cursorRect, FALSE);
 			*/
 
-			if (lMouseDown && !lMouseWasPressed) {
+			if (lMouseDown && !lMouseWasPressed && (wParam & MK_CONTROL)) {
 				elemNew = malloc(sizeof(ElementEditor));
 				lMouseWasPressed = true;
 				if (elemNew != NULL) {
 					elemNew->collider.pos.x = mouseX / zoomLevel + (offsetX);
 					elemNew->collider.pos.y = mouseY / zoomLevel + (offsetY);
-					elemNew->collider.dim.w = 16.0f;
-					elemNew->collider.dim.h = 16.0f;
 					elemNew->color.rgbRed = randInt(0, 255);
 					elemNew->color.rgbGreen = randInt(0, 255);
 					elemNew->color.rgbBlue = randInt(0, 255);
 					elemNew->bgStyle = hatchStyles[randInt(0, 5)];
+					elemNew->id = numOfElements++;
 					TCHAR* newLabel = malloc(sizeof(TCHAR) * 64);
-					wsprintf(newLabel, TEXT("Element %d"), numOfElements++);
+					wsprintf(newLabel, TEXT("Element %d"), labelNumber++);
 					elemNew->label = newLabel;
 					//stackPush(elementStack, nstackCreate(elemNew));
-					addElement(elemNew, numOfElements - 1);
+					addElement(elemNew, elementStack->size);
 				}
 			}
 			if (lMouseDown && elemNew != NULL) {
 				elemNew->collider.dim.w = mouseX / zoomLevel + (offsetX) - elemNew->collider.pos.x;
 				elemNew->collider.dim.h = mouseY / zoomLevel + (offsetY) - elemNew->collider.pos.y;
-				
+				/*
 				InvalidateRect(hwnd, &redraw, FALSE);
 				redraw.left = elemNew->collider.pos.x * zoomLevel - (offsetX * (zoomLevel));
 				redraw.right = (elemNew->collider.pos.x + elemNew->collider.dim.w) * zoomLevel - (offsetX * (zoomLevel));
@@ -299,7 +368,7 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 					redraw.top += -1;
 				}
 				InvalidateRect(hwnd, &redraw, FALSE);
-				
+				*/
 				InvalidateRect(hwnd, NULL, FALSE);
 			}
 			if (!lMouseDown && elemNew != NULL) {
@@ -345,8 +414,8 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 		SelectObject(hdcBackbuffer, hTilesetBackbuffer);
 		SelectObject(hdcElementBackbuffer, hElementBackbuffer);
 		SetDIBColorTable(hdcTileset, 0, 256, paletteInMemory);
-		offsetY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43 - 23)) / zoomLevel);
-		offsetX = ((float)iHScrollPos / 1000.0f) * ((realClientX - (windowSizeW - 266)) / zoomLevel);
+		offsetY = ((float)iVScrollPos / 1000.0f) * ((realClientY - (windowSizeH - 43 - 23 - 100)) / zoomLevel);
+		offsetX = ((float)iHScrollPos / 1000.0f) * ((realClientX - (windowSizeW - 266 - 266)) / zoomLevel);
 		if (CanDrawViewport) {
 			backbufferRender(ps.rcPaint, hdcBackbuffer, hdcTileset, offsetY);
 		}
@@ -382,6 +451,24 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 
 
 		SetBkMode(hdcPaint, TRANSPARENT);
+
+		if (g_viewport_mode == VMODE_COL) {
+			SetTextColor(hdcPaint, RGB(255, 255, 255));
+			for (int y = 0; y < map_height; y++) {
+				for (int x = 0; x < map_width; x++) {
+					int index = y * map_width + x;
+					TCHAR buffer[6];
+					wsprintf(buffer, TEXT("%d"), collision_data[index]);
+					if (collision_data[index] != 0)
+						SetTextColor(hdcPaint, RGB(255, 255, 255));
+					else
+						SetTextColor(hdcPaint, RGB(255, 0, 0));
+					TextOut(hdcPaint, x * 16 * zoomLevel - (offsetX * (zoomLevel)), y * 16 * zoomLevel - (offsetY * (zoomLevel)), buffer, 1);
+				}
+			}
+			//TextOut(hdcPaint, 0, 0, TEXT("Collision Mode"), 14);
+		}
+		SetTextColor(hdcPaint, RGB(0, 0, 0));
 		
 		if (g_viewport_mode == VMODE_ELEM) {
 			StackNode* cur = elementStack->bottom;

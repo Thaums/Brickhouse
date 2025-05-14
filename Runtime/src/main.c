@@ -135,7 +135,7 @@ grid* allocateGrid(uint32_t w, uint32_t h) {
 	toAlloc->dat.h = h;
 	toAlloc->collision.dim.w = toAlloc->dat.w * toAlloc->tex.w;
 	toAlloc->collision.dim.h = toAlloc->dat.h * toAlloc->tex.h;
-	toAlloc->dat.arr = malloc(sizeof(uint16_t) * w * h);
+	toAlloc->dat.arr = malloc(sizeof(uint16_t) * w * h * 2);
 	return toAlloc;
 }
 
@@ -148,7 +148,7 @@ void freeGrid(grid* toFree) {
 }
 
 void setGrid(grid* toSet, uint16_t* data) {
-	for (int i = 0; i < toSet->dat.w * toSet->dat.h; i++) {
+	for (int i = 0; i < toSet->dat.w * toSet->dat.h * 2; i++) {
 		int x = i % toSet->dat.w;
 		int y = i / toSet->dat.w;
 		toSet->dat.arr[i] = data[i];
@@ -334,7 +334,7 @@ vec2 moveCharacterInScene2(thing* moving, vec2 vel) {
 				}
 				int index = indexX + indexY * level->dat.w;
 				if (indexX < level->dat.w && indexY < level->dat.h) //here
-					if (level->dat.arr[index] != 0) {
+					if (level->dat.arr[index + (level->dat.w * level->dat.h)] != 0) {
 						int tileWidth = level->tex.w;
 						int tileHeight = level->tex.h;
 						int tileX = indexX * tileWidth + level->collision.pos.x;
@@ -371,7 +371,7 @@ vec2 moveCharacterInScene2(thing* moving, vec2 vel) {
 			indexY = bottomOnMap;
 		int index = indexX + indexY * level->dat.w;
 		if (indexX < level->dat.w && indexY < level->dat.h) //here
-			if (level->dat.arr[index] != 0) {
+			if (level->dat.arr[index + (level->dat.w * level->dat.h)] != 0) {
 				moving->flag.isTouchingGround = true;
 				break;
 			}
@@ -406,7 +406,7 @@ vec2 moveCharacterInScene2(thing* moving, vec2 vel) {
 			}
 			int index = indexX + indexY * level->dat.w;
 			if (indexX < level->dat.w && indexY < level->dat.h) //here
-				if (level->dat.arr[index] != 0) {
+				if (level->dat.arr[index + (level->dat.w * level->dat.h)] != 0) {
 					int tileWidth = level->tex.w;
 					int tileHeight = level->tex.h;
 					int tileX = indexX * tileWidth + level->collision.pos.x;
@@ -421,7 +421,7 @@ vec2 moveCharacterInScene2(thing* moving, vec2 vel) {
 		}
 	}
 	//arena
-	doBoundsCheckInverted(moving->collision, (aabb) { 0, 0, 800, 600 }, bVelocity, &bVelocity);
+	doBoundsCheckInverted(moving->collision, (aabb) { 0, 0, levelw * 16, levelh * 16 }, bVelocity, &bVelocity);
 	if (vel.y != bVelocity.y) {
 		if (vel.y >= 0)
 			moving->flag.isTouchingGround = true;
@@ -504,6 +504,7 @@ void fillPaletteStruct(RGBQUAD* epalette, PaletteResource* rpalette) {
 }
 
 int GetStartingMapResource() {
+	printf("A: %d\n", LaunchInfo.resources.indexMapResource + LaunchInfo.player.map);
 	return LaunchInfo.resources.indexMapResource + LaunchInfo.player.map;
 }
 
@@ -695,6 +696,7 @@ extern inline void renderTextASCIIToBuffer(HDC hdcDest, HDC hdcGlyphAtlas, char*
 	}
 }
 
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	PAINTSTRUCT ps;
 	void* testPointer;
@@ -702,10 +704,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	static HBITMAP hTileset;
 	static HBITMAP hVersionText;
 	static HBITMAP hGlyphAtlas;
+	static HBITMAP hBackground;
 	switch (message) {
 	case WM_CREATE: {
 		HDC hdc = GetWindowDC(hwnd);
 		hBackbuffer = BitmapFill(hdc, 800, 600, &testPointer, 0, selectedGamePalette);
+		hBackground = BitmapFill(hdc, 800, 600, &testPointer, 16, selectedGamePalette);
 		int tilesetSiz = 0;
 		unsigned char* packedTextureData;
 		loadGameResource(113, &packedTextureData, &tilesetSiz);
@@ -751,18 +755,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		SelectObject(hdcBackbuffer, hBackbuffer);
 		SelectObject(hdcTileset, hTileset);
 		SelectObject(hdcVersionText, hVersionText);
+
+		HDC hdcBackground = CreateCompatibleDC(hdcPaint);
+		SelectObject(hdcBackground, hBackground);
+		BitBlt(hdcBackbuffer, 0, 0, 800, 600, hdcBackground, 0, 0, SRCCOPY);
+		DeleteDC(hdcBackground);
 		
 		//if (allRectsInGame != NULL)
 		for (int y = 0; y < levelh; y++) {
 			for (int x = 0; x < levelw; x++) {
-				int sx = x * level->tex.w;
-				int sy = y * level->tex.h;
+				int sx = x * level->tex.w - player->collision.pos.x + 800 / 2;
+				int sy = y * level->tex.h - player->collision.pos.y + 600 / 2;
 				BitBlt(hdcBackbuffer, sx, sy, level->tex.w, level->tex.h, hdcTileset, (level->dat.arr[x + y * levelw] % (LoadedTilesetTexture.dim.w / level->tex.w)) * level->tex.w, (level->dat.arr[x + y * levelw] / (LoadedTilesetTexture.dim.w / level->tex.w)) * level->tex.h, SRCCOPY);
 			}
 		}
 		for (int i = 0; i < numRects; i++) {
 			//Rectangle(hdcPaint, allRectsInGame[i].collision.pos.x, allRectsInGame[i].collision.pos.y, allRectsInGame[i].collision.dim.w + allRectsInGame[i].collision.pos.x, allRectsInGame[i].collision.dim.h + allRectsInGame[i].collision.pos.y);
-			BitBlt(hdcBackbuffer, allRectsInGame[i].collision.pos.x, allRectsInGame[i].collision.pos.y, allRectsInGame[i].collision.dim.w, allRectsInGame[i].collision.dim.h, hdcTileset, 16, 48, SRCCOPY);
+			BitBlt(hdcBackbuffer, allRectsInGame[i].collision.pos.x - player->collision.pos.x + 800 / 2, allRectsInGame[i].collision.pos.y - player->collision.pos.y + 600 / 2, allRectsInGame[i].collision.dim.w, allRectsInGame[i].collision.dim.h, hdcTileset, 16, 48, SRCCOPY);
 		}
 
 		BitBlt(hdcBackbuffer, 0, 0, 128, 8, hdcVersionText, 0, 0, SRCPAINT);

@@ -8,6 +8,8 @@ typedef struct ElementEditor {
 	RGBQUAD color;
 	int bgStyle;
 	TCHAR* label;
+	int id;
+	HWND checkbox;
 } ElementEditor;
 
 extern const int hatchStyles[];

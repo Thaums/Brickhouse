@@ -19,6 +19,7 @@ void initGlobals() {
 	TilesetDataHeight = 0;
 
 	map_data = NULL;
+	collision_data = NULL;
 	map_width = 0;
 	map_height = 0;
 	
@@ -30,4 +31,5 @@ void initGlobals() {
 	g_viewport_mode = VMODE_DRAW;
 
 	elementStack = stackInit();
+	mapStack = stackInit();
 }
