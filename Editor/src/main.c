@@ -24,6 +24,7 @@
 #include "palettemanager.h"
 #include "viewport.h"
 #include "tilepicker.h"
+#include "tree.h"
 
 #include <coolmath.h>
 
@@ -165,8 +166,11 @@ HMENU CreateTilesetMenu() {
 	return result;
 }
 
+
+
 _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR szCmdLine, int iCmdShow) {
 	initGlobals();
+	g_hInst = hInstance;
 	tickStart = GetTicks();
 
 	FILE* fp;
@@ -223,6 +227,9 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 	wndclass.lpfnWndProc = OverviewWndProc;
 	wndclass.lpszClassName = szOverviewName;
 	RegisterClass(&wndclass);
+	wndclass.lpfnWndProc = TreeWndProc;
+	wndclass.lpszClassName = szTreeWindowName;
+	RegisterClass(&wndclass);
 	
 	hwnd = CreateWindow(
 		szAppName,
@@ -254,6 +261,7 @@ _Use_decl_annotations_ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevIn
 		hInstance,
 		NULL
 	);
+
 
 	//SetWindowPos(hLayerManager, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
@@ -486,6 +494,26 @@ HANDLE OpenFileForWriting(TCHAR* filePath) {
 	return hFile;
 }
 
+HANDLE OpenFileForReading(TCHAR* filePath) {
+	// Create or open the file
+	HANDLE hFile = CreateFile(
+		filePath,                // File path
+		GENERIC_READ,           // Desired access
+		FILE_SHARE_READ,                       // Share mode
+		NULL,                    // Security attributes
+		OPEN_EXISTING,           // Creation disposition
+		FILE_ATTRIBUTE_NORMAL,   // Flags and attributes
+		NULL                     // Template file handle
+	);
+
+	if (hFile == INVALID_HANDLE_VALUE) {
+		printf("Could not open file (error %lu)\n", GetLastError());
+		return;
+	}
+
+	return hFile;
+}
+
 void CloseFileHandle(HANDLE hFile) {
 	CloseHandle(hFile);
 }
@@ -509,10 +537,62 @@ void AppendToFile(HANDLE hFile, const char* data, unsigned int length) {
 	}
 }
 
+char* ReadChunkFromFile(HANDLE hFile, DWORD offset, DWORD sizeToRead) {
+	// Move the file pointer to the desired offset
+	DWORD result = SetFilePointer(hFile, offset, NULL, FILE_BEGIN);
+	if (result == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+		printf("Failed to set file pointer. Error: %lu\n", GetLastError());
+		return NULL;
+	}
+
+	// Allocate a buffer
+	//char* buffer = (char*)HeapAlloc(GetProcessHeap(), 0, sizeToRead + 1);
+	char* buffer = malloc(sizeToRead);
+	if (!buffer) {
+		printf("Memory allocation failed.\n");
+		return NULL;
+	}
+
+	DWORD bytesRead = 0;
+	if (!ReadFile(hFile, buffer, sizeToRead, &bytesRead, NULL)) {
+		printf("ReadFile failed. Error: %lu\n", GetLastError());
+		//HeapFree(GetProcessHeap(), 0, buffer);
+		free(buffer);
+		return NULL;
+	}
+
+	//buffer[bytesRead] = '\0'; // Null-terminate for safe string usage
+	return buffer;
+}
+
+TCHAR* FileDialogOpen(HWND hwnd) {
+	OPENFILENAME ofn;
+	TCHAR szFile[MAX_PATH] = TEXT("");
+
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hwnd;
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrFilter = TEXT("All Files\0*.*\0Text Files\0*.TXT\0");
+	ofn.nFilterIndex = 1;
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+	if (GetOpenFileName(&ofn)) {
+		MessageBox(hwnd, ofn.lpstrFile, TEXT("Selected File"), MB_OK);
+	}
+	size_t len = _tcslen(ofn.lpstrFile);
+	TCHAR* result = malloc(MAX_PATH * sizeof(TCHAR));
+	if (!result)
+		return NULL;
+	_tcscpy_s(result, MAX_PATH, ofn.lpstrFile);
+	return result;
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	static HWND hwndTilepicker;
 	static HWND hwndViewport;
 	static HWND hwndObjects;
+	static HWND hwndTree;
 	PAINTSTRUCT ps;
 	switch (message) {
 	case WM_CREATE: {
@@ -555,9 +635,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			(HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE),
 			NULL
 		);
+		hwndTree = CreateWindow(
+			szTreeWindowName,
+			NULL,
+			WS_CHILDWINDOW | WS_VISIBLE,
+			0, 0, 0, 0,
+			hwnd,
+			4,
+			(HINSTANCE)GetWindowLong(hwnd, GWL_HINSTANCE),
+			NULL
+		);
 		
 		//LaunchInfo Init
-		LaunchInfo.player.map = 0;
+		LaunchInfo.player.map = 1;
 		LaunchInfo.player.x = 16 * 10;
 		LaunchInfo.player.y = 16 * 10;
 		LaunchInfo.resources.indexMapResource = 104;
@@ -570,7 +660,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		windowSizeW = LOWORD(lParam);
 		HWND bkg = (HWND)GetWindowLong(hwnd, GWL_USERDATA);
 		MoveWindow(bkg, 0, 0, windowSizeW, windowSizeH, TRUE);
-		MoveWindow(hwndTilepicker, 0, 43, 256, windowSizeH - 43, TRUE);
+		MoveWindow(hwndTilepicker, 5, 43, 256, windowSizeH / 2 - 43, TRUE);
+		MoveWindow(hwndTree, 5, 43 + (windowSizeH / 2 - 43) + 43 / 2, 256, windowSizeH / 2 - 43, TRUE);
 		//MoveWindow(hwndObjects, 0, 43, 256, windowSizeH - 43, TRUE);
 		MoveWindow(hwndObjects, windowSizeW - 266, 66, windowSizeW, windowSizeH - 43 - 23 - 100, TRUE);
 		int viewportX = 266;
@@ -621,41 +712,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 				CloseFileHandle(project);
 				/*
-				uint16_t* writeBuffer = malloc(map_width * map_height * sizeof(uint16_t));
-				if (!writeBuffer) {
-					break;
-				}
-				for (int i = 0; i < (map_width * map_height); i++) {
-					writeBuffer[i] = map_data[i];
-				}
-				WriteToFile(TEXT("test.map"), (char*)writeBuffer, map_width * map_height * sizeof(uint16_t));
-
-				uint16_t* writeBufferCompressedRLE = RunLengthEncode(writeBuffer, map_width * map_height);
-
-				size_t* getRLELength = (size_t*)writeBufferCompressedRLE;
-				size_t RLELength = *getRLELength;
-				//writeBufferCompressedRLE = getRLELength + 1;
-
-				WriteToFile(TEXT("testCompressed.map"), (char*)writeBufferCompressedRLE, sizeof(size_t) + sizeof(uint16_t) * 2 * RLELength);
-
-				uint16_t* writeBufferUncompressedRLE = RunLengthDecode(writeBufferCompressedRLE);
-				WriteToFile(TEXT("testUncompressed.map"), writeBufferUncompressedRLE, map_width * map_height * sizeof(uint16_t));
-
-				//embed_nofile(executablePath, writeBuffer, map_width * map_height, 101);
-				free(writeBuffer);
-				writeBuffer = NULL;
-				free(writeBufferCompressedRLE);
-				writeBufferCompressedRLE = NULL;
-				free(writeBufferUncompressedRLE);
-				writeBufferUncompressedRLE = NULL;
-				*/
-				/*int length = CMDLINELEN;
-				TCHAR commandLine[CMDLINELEN];
-				//_tprintf(arguments);
-				_sntprintf_s(commandLine, CMDLINELEN, 100, TEXT("\"%s\""), executablePath);*/
-
-				//embed(executablePath, arguments, 101);
-				/*
 				char modulePath[1000];
 				GetCurrentDirectoryA(1000, modulePath);
 				printf(modulePath);
@@ -663,7 +719,57 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 				break;
 			}
 			case IDM_FILE_OPEN: {
+
+				TCHAR* project_path = FileDialogOpen(hwnd);
+
 				printf("Open");
+				HANDLE project = OpenFileForReading(project_path);
+				if (project == NULL)
+					break;
+				unsigned int* pMapRecords = (unsigned int*)ReadChunkFromFile(project, 0, sizeof(unsigned int));
+				unsigned int iMapRecords = *pMapRecords;
+				free(pMapRecords);
+				unsigned int sizMapRecords = iMapRecords * sizeof(MapInfo) + sizeof(unsigned int);
+				char* serializedMapRecords = ReadChunkFromFile(project, 0, sizMapRecords);
+				StackNode* cur = mapStack->top;
+				while (cur != NULL) {
+					StackNode* next = cur->down;
+					//nstackFree(cur);
+					EditorMap* innerMap = cur->data;
+					free(innerMap->tilemap);
+					free(innerMap->collision);
+					free(innerMap);
+					cur = next;
+				}
+				stackFree(mapStack);
+				InitializeMapInfoList(serializedMapRecords);
+				size_t beginIndex = sizMapRecords;
+				for (int i = 0; i < MapCollectionLength; i++) {
+					MapInfo* mapRecord = MapCollection + i;
+					EditorMap* newMapData = EditorCreateMap(i, mapRecord->dim.w, mapRecord->dim.h);
+					size_t mapSize = mapRecord->dim.w * mapRecord->dim.h;
+					size_t mapSizeBytes = mapSize * sizeof(uint16_t);
+					uint16_t* mapPointer = (uint16_t*)ReadChunkFromFile(project, beginIndex, mapSizeBytes);
+					beginIndex += mapSizeBytes;
+					for (int j = 0; j < mapSize; j++) {
+						newMapData->tilemap[j] = mapPointer[j];
+					}
+					free(mapPointer);
+					mapPointer = (uint16_t*)ReadChunkFromFile(project, beginIndex, mapSizeBytes);
+					beginIndex += mapSizeBytes;
+					for (int j = 0; j < mapSize; j++) {
+						newMapData->collision[j] = mapPointer[j];
+					}
+					free(mapPointer);
+					map_data = newMapData->tilemap;
+					collision_data = newMapData->collision;
+					map_width = mapRecord->dim.w;
+					map_height = mapRecord->dim.h;
+					//beginIndex += mapRecord->dim.w * mapRecord->dim.h * 2 * sizeof(uint16_t);
+				}
+				CanDrawViewport = TRUE;
+				InvalidateRect(viewportTest, NULL, FALSE);
+				CloseFileHandle(project);
 				break;
 			}
 		}
@@ -671,15 +777,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 			int izoom = zoomLevel;
 			zoomLevel = max(zoomLevel - 1, 1);
 			SendMessage(viewportTest, WM_SIZE, wParam, lParam);
-			if (zoomLevel != izoom)
+			if (zoomLevel != izoom) {
+				CanDrawViewport = TRUE;
 				InvalidateRect(viewportTest, NULL, FALSE);
+			}
 		}
 		else if (lParam == TMenuButtons.zoomIn) {
 			int izoom = zoomLevel;
 			zoomLevel = min(zoomLevel + 1, 5);
 			SendMessage(viewportTest, WM_SIZE, wParam, lParam);
-			if (zoomLevel != izoom)
+			if (zoomLevel != izoom) {
+				CanDrawViewport = TRUE;
 				InvalidateRect(viewportTest, NULL, FALSE);
+			}
 		}
 		else if (lParam == TMenuButtons.drawButton) {
 			CanDrawViewport = !CanDrawViewport; //???

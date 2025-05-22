@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <CommCtrl.h>
 #include "layer.h"
 #include "mapinfo.h"
 #include "gameinfo.h"
@@ -38,6 +39,8 @@ HWND tilepickerHWND;
 HWND overviewHWND;
 bool CanDrawViewport;
 
+HINSTANCE g_hInst;
+
 unsigned char* TilesetDataToSend;
 int TilesetDataWidth;
 int TilesetDataHeight;
@@ -56,6 +59,7 @@ extern const TCHAR szViewportName[];
 extern const TCHAR szLayerManagerName[];
 extern const TCHAR szPaletteManagerName[];
 extern const TCHAR szOverviewName[];
+extern const TCHAR szTreeWindowName[];
 
 RGBQUAD paletteInMemory[256];
 

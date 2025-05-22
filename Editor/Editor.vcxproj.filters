@@ -51,6 +51,9 @@
     <ClCompile Include="src\button.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\tree.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\Icon.ico">
@@ -115,6 +118,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\button.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\tree.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

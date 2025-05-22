@@ -30,6 +30,7 @@
     <ClCompile Include="src\palettemanager.c" />
     <ClCompile Include="src\stack.c" />
     <ClCompile Include="src\tilepicker.c" />
+    <ClCompile Include="src\tree.c" />
     <ClCompile Include="src\viewport.c" />
   </ItemGroup>
   <ItemGroup>
@@ -55,6 +56,7 @@
     <ClInclude Include="includes\stack.h" />
     <ClInclude Include="includes\texture.h" />
     <ClInclude Include="includes\tilepicker.h" />
+    <ClInclude Include="includes\tree.h" />
     <ClInclude Include="includes\viewport.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
@@ -142,7 +144,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)palDraw\bin\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>palDraw.lib;Msimg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>palDraw.lib;Msimg32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -161,7 +163,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)palDraw\bin\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>palDraw.lib;Msimg32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>palDraw.lib;Msimg32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

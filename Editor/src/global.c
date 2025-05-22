@@ -5,6 +5,7 @@ const TCHAR szViewportName[] = TEXT("Viewport");
 const TCHAR szLayerManagerName[] = TEXT("Layer Manager");
 const TCHAR szPaletteManagerName[] = TEXT("Palette Manager");
 const TCHAR szOverviewName[] = TEXT("Overview");
+const TCHAR szTreeWindowName[] = TEXT("Map Tree");
 
 void initGlobals() {
 	tickStart = 0;

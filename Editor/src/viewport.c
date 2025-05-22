@@ -12,9 +12,10 @@ void UpdateMapInfoCollection(unsigned int id, unsigned int w, unsigned int h) {
 	//if (MapCollection != NULL)
 	//	free(MapCollection);
 	MapCollection = updated;
-	for (int i = 0; i < MapCollectionLength - 1; i++) {
-		updated++;
-	}
+	//for (int i = 0; i < MapCollectionLength - 1; i++) {
+	//	updated++;
+	//}
+	updated += (MapCollectionLength - 1);
 	updated->info.id = id;
 	updated->dim.w = w;
 	updated->dim.h = h;
@@ -43,14 +44,14 @@ EditorMap* EditorCreateMap(int id, int w, int h) {
 	return newMap;
 }
 
-void CreateMap(unsigned int w, unsigned int h) {
+EditorMap* CreateMap(unsigned int w, unsigned int h) {
 	map_width = w;
 	map_height = h;
 	EditorMap* a_map = EditorCreateMap(MapCollectionLength, map_width, map_height);
 	map_data = a_map->tilemap;
 	collision_data = a_map->collision;
 	UpdateMapInfoCollection(MapCollectionLength, map_width, map_height);
-	return;
+	return a_map;
 }
 
 HBITMAP CreateAlphaBitmap(HDC hdc, int width, int height)
@@ -458,12 +459,12 @@ LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 				for (int x = 0; x < map_width; x++) {
 					int index = y * map_width + x;
 					TCHAR buffer[6];
-					wsprintf(buffer, TEXT("%d"), collision_data[index]);
+					wsprintf(buffer, TEXT("%d  "), collision_data[index]);
 					if (collision_data[index] != 0)
 						SetTextColor(hdcPaint, RGB(255, 255, 255));
 					else
 						SetTextColor(hdcPaint, RGB(255, 0, 0));
-					TextOut(hdcPaint, x * 16 * zoomLevel - (offsetX * (zoomLevel)), y * 16 * zoomLevel - (offsetY * (zoomLevel)), buffer, 1);
+					TextOut(hdcPaint, x * 16 * zoomLevel - (offsetX * (zoomLevel)), y * 16 * zoomLevel - (offsetY * (zoomLevel)), buffer, 3);
 				}
 			}
 			//TextOut(hdcPaint, 0, 0, TEXT("Collision Mode"), 14);
